@@ -1,0 +1,623 @@
+[
+  {
+    "entry_id": "T2026082018384702361921",
+    "atn_token": "260820023",
+    "employee_id": "TFC-023",
+    "user_name": "Mahatab Alam",
+    "attendance_date": "20/08/26",
+    "attendance_time": "18:38:47",
+    "serial_no": 61921
+  },
+  {
+    "entry_id": "T2026082018320116761919",
+    "atn_token": "260820167",
+    "employee_id": "TFC-167",
+    "user_name": "Aayush Shukla",
+    "attendance_date": "20/08/26",
+    "attendance_time": "18:32:01",
+    "serial_no": 61919
+  },
+  {
+    "entry_id": "T2026082018315916761918",
+    "atn_token": "260820167",
+    "employee_id": "TFC-167",
+    "user_name": "Aayush Shukla",
+    "attendance_date": "20/08/26",
+    "attendance_time": "18:31:59",
+    "serial_no": 61918
+  },
+  {
+    "entry_id": "T2026082018315716761916",
+    "atn_token": "260820167",
+    "employee_id": "TFC-167",
+    "user_name": "Aayush Shukla",
+    "attendance_date": "20/08/26",
+    "attendance_time": "18:31:57",
+    "serial_no": 61916
+  },
+  {
+    "entry_id": "T2026082018100402361879",
+    "atn_token": "260820023",
+    "employee_id": "TFC-023",
+    "user_name": "Mahatab Alam",
+    "attendance_date": "20/08/26",
+    "attendance_time": "18:10:04",
+    "serial_no": 61879
+  },
+  {
+    "entry_id": "T2026082018095502361876",
+    "atn_token": "260820023",
+    "employee_id": "TFC-023",
+    "user_name": "Mahatab Alam",
+    "attendance_date": "20/08/26",
+    "attendance_time": "18:09:55",
+    "serial_no": 61876
+  },
+  {
+    "entry_id": "T2026082018002507761871",
+    "atn_token": "260820077",
+    "employee_id": "TFC-077",
+    "user_name": "Amardeep",
+    "attendance_date": "20/08/26",
+    "attendance_time": "18:00:25",
+    "serial_no": 61871
+  },
+  {
+    "entry_id": "T2026082017424002361864",
+    "atn_token": "260820023",
+    "employee_id": "TFC-023",
+    "user_name": "Mahatab Alam",
+    "attendance_date": "20/08/26",
+    "attendance_time": "17:42:40",
+    "serial_no": 61864
+  },
+  {
+    "entry_id": "T2026082017304503861859",
+    "atn_token": "260820038",
+    "employee_id": "TFC-038",
+    "user_name": "Lovely Singh",
+    "attendance_date": "20/08/26",
+    "attendance_time": "17:30:45",
+    "serial_no": 61859
+  },
+  {
+    "entry_id": "T2026082017212316361851",
+    "atn_token": "260820163",
+    "employee_id": "TFC-163",
+    "user_name": "Anupam Chaudhary",
+    "attendance_date": "20/08/26",
+    "attendance_time": "17:21:23",
+    "serial_no": 61851
+  },
+  {
+    "entry_id": "T2026082017171300661848",
+    "atn_token": "260820006",
+    "employee_id": "TFC-006",
+    "user_name": "Sakshi pal",
+    "attendance_date": "20/08/26",
+    "attendance_time": "17:17:13",
+    "serial_no": 61848
+  },
+  {
+    "entry_id": "T2026082012122705361835",
+    "atn_token": "260820053",
+    "employee_id": "TFC-053",
+    "user_name": "Tanya Bhardwaj",
+    "attendance_date": "20/08/26",
+    "attendance_time": "12:12:27",
+    "serial_no": 61835
+  },
+  {
+    "entry_id": "T2026082012122405361833",
+    "atn_token": "260820053",
+    "employee_id": "TFC-053",
+    "user_name": "Tanya Bhardwaj",
+    "attendance_date": "20/08/26",
+    "attendance_time": "12:12:24",
+    "serial_no": 61833
+  },
+  {
+    "entry_id": "T2026082010592100361828",
+    "atn_token": "260820003",
+    "employee_id": "TFC-003",
+    "user_name": "Manoj Kohli",
+    "attendance_date": "20/08/26",
+    "attendance_time": "10:59:21",
+    "serial_no": 61828
+  },
+  {
+    "entry_id": "T2026082010553200761825",
+    "atn_token": "260820007",
+    "employee_id": "TFC-007",
+    "user_name": "Ujjwal Kashyap",
+    "attendance_date": "20/08/26",
+    "attendance_time": "10:55:32",
+    "serial_no": 61825
+  },
+  {
+    "entry_id": "T2026082010401307661820",
+    "atn_token": "260820076",
+    "employee_id": "TFC-076",
+    "user_name": "Shilpa Thakur",
+    "attendance_date": "20/08/26",
+    "attendance_time": "10:40:13",
+    "serial_no": 61820
+  },
+  {
+    "entry_id": "T2026082010401007661818",
+    "atn_token": "260820076",
+    "employee_id": "TFC-076",
+    "user_name": "Shilpa Thakur",
+    "attendance_date": "20/08/26",
+    "attendance_time": "10:40:10",
+    "serial_no": 61818
+  },
+  {
+    "entry_id": "T2026082010294402661816",
+    "atn_token": "260820026",
+    "employee_id": "TFC-026",
+    "user_name": "Sayyad Abdul",
+    "attendance_date": "20/08/26",
+    "attendance_time": "10:29:44",
+    "serial_no": 61816
+  },
+  {
+    "entry_id": "T2026082010293902661815",
+    "atn_token": "260820026",
+    "employee_id": "TFC-026",
+    "user_name": "Sayyad Abdul",
+    "attendance_date": "20/08/26",
+    "attendance_time": "10:29:39",
+    "serial_no": 61815
+  },
+  {
+    "entry_id": "T2026082010293502661814",
+    "atn_token": "260820026",
+    "employee_id": "TFC-026",
+    "user_name": "Sayyad Abdul",
+    "attendance_date": "20/08/26",
+    "attendance_time": "10:29:35",
+    "serial_no": 61814
+  },
+  {
+    "entry_id": "T2026082010293111961812",
+    "atn_token": "260820119",
+    "employee_id": "TFC-119",
+    "user_name": "Rajan Kumar Pathak",
+    "attendance_date": "20/08/26",
+    "attendance_time": "10:29:31",
+    "serial_no": 61812
+  },
+  {
+    "entry_id": "T2026082010211401261808",
+    "atn_token": "260820012",
+    "employee_id": "TFC-012",
+    "user_name": "Harshit Pandey",
+    "attendance_date": "20/08/26",
+    "attendance_time": "10:21:14",
+    "serial_no": 61808
+  },
+  {
+    "entry_id": "T2026082010095715661803",
+    "atn_token": "260820156",
+    "employee_id": "TFC-156",
+    "user_name": "Harsh",
+    "attendance_date": "20/08/26",
+    "attendance_time": "10:09:57",
+    "serial_no": 61803
+  },
+  {
+    "entry_id": "T2026082010094300661800",
+    "atn_token": "260820006",
+    "employee_id": "TFC-006",
+    "user_name": "Sakshi pal",
+    "attendance_date": "20/08/26",
+    "attendance_time": "10:09:43",
+    "serial_no": 61800
+  },
+  {
+    "entry_id": "T2026082010085215861797",
+    "atn_token": "260820158",
+    "employee_id": "TFC-158",
+    "user_name": "Prachi Chaudhary",
+    "attendance_date": "20/08/26",
+    "attendance_time": "10:08:52",
+    "serial_no": 61797
+  },
+  {
+    "entry_id": "T2026082010083812161794",
+    "atn_token": "260820121",
+    "employee_id": "TFC-121",
+    "user_name": "Hritik Kumar Gupta",
+    "attendance_date": "20/08/26",
+    "attendance_time": "10:08:38",
+    "serial_no": 61794
+  },
+  {
+    "entry_id": "T2026082010083012161792",
+    "atn_token": "260820121",
+    "employee_id": "TFC-121",
+    "user_name": "Hritik Kumar Gupta",
+    "attendance_date": "20/08/26",
+    "attendance_time": "10:08:30",
+    "serial_no": 61792
+  },
+  {
+    "entry_id": "T2026082010082609061791",
+    "atn_token": "260820090",
+    "employee_id": "TFC-090",
+    "user_name": "Anshul Yadav",
+    "attendance_date": "20/08/26",
+    "attendance_time": "10:08:26",
+    "serial_no": 61791
+  },
+  {
+    "entry_id": "T2026082010082208561789",
+    "atn_token": "260820085",
+    "employee_id": "TFC-085",
+    "user_name": "Tarun Kumar",
+    "attendance_date": "20/08/26",
+    "attendance_time": "10:08:22",
+    "serial_no": 61789
+  },
+  {
+    "entry_id": "T2026082010074512461786",
+    "atn_token": "260820124",
+    "employee_id": "TFC-124",
+    "user_name": "Shiwani Rai",
+    "attendance_date": "20/08/26",
+    "attendance_time": "10:07:45",
+    "serial_no": 61786
+  },
+  {
+    "entry_id": "T2026082010063213461782",
+    "atn_token": "260820134",
+    "employee_id": "TFC-134",
+    "user_name": "Nikhil Kumar",
+    "attendance_date": "20/08/26",
+    "attendance_time": "10:06:32",
+    "serial_no": 61782
+  },
+  {
+    "entry_id": "T2026082010053010261779",
+    "atn_token": "260820102",
+    "employee_id": "TFC-102",
+    "user_name": "Mamta Kumari",
+    "attendance_date": "20/08/26",
+    "attendance_time": "10:05:30",
+    "serial_no": 61779
+  },
+  {
+    "entry_id": "T2026082010031607761776",
+    "atn_token": "260820077",
+    "employee_id": "TFC-077",
+    "user_name": "Amardeep",
+    "attendance_date": "20/08/26",
+    "attendance_time": "10:03:16",
+    "serial_no": 61776
+  },
+  {
+    "entry_id": "T2026082010022212961773",
+    "atn_token": "260820129",
+    "employee_id": "TFC-129",
+    "user_name": "Shani Kumar",
+    "attendance_date": "20/08/26",
+    "attendance_time": "10:02:22",
+    "serial_no": 61773
+  },
+  {
+    "entry_id": "T2026082010021114961770",
+    "atn_token": "260820149",
+    "employee_id": "TFC-149",
+    "user_name": "Amirta Singh",
+    "attendance_date": "20/08/26",
+    "attendance_time": "10:02:11",
+    "serial_no": 61770
+  },
+  {
+    "entry_id": "T2026082010014813361767",
+    "atn_token": "260820133",
+    "employee_id": "TFC-133",
+    "user_name": "Shivangi Yadav",
+    "attendance_date": "20/08/26",
+    "attendance_time": "10:01:48",
+    "serial_no": 61767
+  },
+  {
+    "entry_id": "T2026082010001816561764",
+    "atn_token": "260820165",
+    "employee_id": "TFC-165",
+    "user_name": "Anurag Sharma 2",
+    "attendance_date": "20/08/26",
+    "attendance_time": "10:00:18",
+    "serial_no": 61764
+  },
+  {
+    "entry_id": "T2026082010001303861761",
+    "atn_token": "260820038",
+    "employee_id": "TFC-038",
+    "user_name": "Lovely Singh",
+    "attendance_date": "20/08/26",
+    "attendance_time": "10:00:13",
+    "serial_no": 61761
+  },
+  {
+    "entry_id": "T2026081918175902361563",
+    "atn_token": "260819023",
+    "employee_id": "TFC-023",
+    "user_name": "Mahatab Alam",
+    "attendance_date": "19/08/26",
+    "attendance_time": "18:17:59",
+    "serial_no": 61563
+  },
+  {
+    "entry_id": "T2026081918180502361566",
+    "atn_token": "260819023",
+    "employee_id": "TFC-023",
+    "user_name": "Mahatab Alam",
+    "attendance_date": "19/08/26",
+    "attendance_time": "18:18:05",
+    "serial_no": 61566
+  },
+  {
+    "entry_id": "T2026081919152116361571",
+    "atn_token": "260819163",
+    "employee_id": "TFC-163",
+    "user_name": "Anupam Chaudhary",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:15:21",
+    "serial_no": 61571
+  },
+  {
+    "entry_id": "T2026081919165616461574",
+    "atn_token": "260819164",
+    "employee_id": "TFC-164",
+    "user_name": "Nikhil 2",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:16:56",
+    "serial_no": 61574
+  },
+  {
+    "entry_id": "T2026081919170116161577",
+    "atn_token": "260819161",
+    "employee_id": "TFC-161",
+    "user_name": "Anshu",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:17:01",
+    "serial_no": 61577
+  },
+  {
+    "entry_id": "T2026081919171515861580",
+    "atn_token": "260819158",
+    "employee_id": "TFC-158",
+    "user_name": "Prachi Chaudhary",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:17:15",
+    "serial_no": 61580
+  },
+  {
+    "entry_id": "T2026081919180916561585",
+    "atn_token": "260819165",
+    "employee_id": "TFC-165",
+    "user_name": "Anurag Sharma 2",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:18:09",
+    "serial_no": 61585
+  },
+  {
+    "entry_id": "T2026081919181516561588",
+    "atn_token": "260819165",
+    "employee_id": "TFC-165",
+    "user_name": "Anurag Sharma 2",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:18:15",
+    "serial_no": 61588
+  },
+  {
+    "entry_id": "T2026081919182516561591",
+    "atn_token": "260819165",
+    "employee_id": "TFC-165",
+    "user_name": "Anurag Sharma 2",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:18:25",
+    "serial_no": 61591
+  },
+  {
+    "entry_id": "T2026081919193116061594",
+    "atn_token": "260819160",
+    "employee_id": "TFC-160",
+    "user_name": "Sameer",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:19:31",
+    "serial_no": 61594
+  },
+  {
+    "entry_id": "T2026081919195816561597",
+    "atn_token": "260819165",
+    "employee_id": "TFC-165",
+    "user_name": "Anurag Sharma 2",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:19:58",
+    "serial_no": 61597
+  },
+  {
+    "entry_id": "T2026081919212000361600",
+    "atn_token": "260819003",
+    "employee_id": "TFC-003",
+    "user_name": "Manoj Kohli",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:21:20",
+    "serial_no": 61600
+  },
+  {
+    "entry_id": "T2026081919212516561602",
+    "atn_token": "260819165",
+    "employee_id": "TFC-165",
+    "user_name": "Anurag Sharma 2",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:21:25",
+    "serial_no": 61602
+  },
+  {
+    "entry_id": "T2026081919254603861604",
+    "atn_token": "260819038",
+    "employee_id": "TFC-038",
+    "user_name": "Lovely Singh",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:25:46",
+    "serial_no": 61604
+  },
+  {
+    "entry_id": "T2026081919254901261606",
+    "atn_token": "260819012",
+    "employee_id": "TFC-012",
+    "user_name": "Harshit Pandey",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:25:49",
+    "serial_no": 61606
+  },
+  {
+    "entry_id": "T2026081919255603161608",
+    "atn_token": "260819031",
+    "employee_id": "TFC-031",
+    "user_name": "Piyush mittal",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:25:56",
+    "serial_no": 61608
+  },
+  {
+    "entry_id": "T2026081919310507761611",
+    "atn_token": "260819077",
+    "employee_id": "TFC-077",
+    "user_name": "Amardeep",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:31:05",
+    "serial_no": 61611
+  },
+  {
+    "entry_id": "T2026081919325903861614",
+    "atn_token": "260819038",
+    "employee_id": "TFC-038",
+    "user_name": "Lovely Singh",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:32:59",
+    "serial_no": 61614
+  },
+  {
+    "entry_id": "T2026081919385715561617",
+    "atn_token": "260819155",
+    "employee_id": "TFC-155",
+    "user_name": "SEJAL",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:38:57",
+    "serial_no": 61617
+  },
+  {
+    "entry_id": "T2026081919391312061620",
+    "atn_token": "260819120",
+    "employee_id": "TFC-120",
+    "user_name": "Ravi Karan Singh",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:39:13",
+    "serial_no": 61620
+  },
+  {
+    "entry_id": "T2026081919391712061622",
+    "atn_token": "260819120",
+    "employee_id": "TFC-120",
+    "user_name": "Ravi Karan Singh",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:39:17",
+    "serial_no": 61622
+  },
+  {
+    "entry_id": "T2026081919392612161624",
+    "atn_token": "260819121",
+    "employee_id": "TFC-121",
+    "user_name": "Hritik Kumar Gupta",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:39:26",
+    "serial_no": 61624
+  },
+  {
+    "entry_id": "T2026081919392912161626",
+    "atn_token": "260819121",
+    "employee_id": "TFC-121",
+    "user_name": "Hritik Kumar Gupta",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:39:29",
+    "serial_no": 61626
+  },
+  {
+    "entry_id": "T2026081919393112161627",
+    "atn_token": "260819121",
+    "employee_id": "TFC-121",
+    "user_name": "Hritik Kumar Gupta",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:39:31",
+    "serial_no": 61627
+  },
+  {
+    "entry_id": "T2026081919405113461629",
+    "atn_token": "260819134",
+    "employee_id": "TFC-134",
+    "user_name": "Nikhil Kumar",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:40:51",
+    "serial_no": 61629
+  },
+  {
+    "entry_id": "T2026081919420200561632",
+    "atn_token": "260819005",
+    "employee_id": "TFC-005",
+    "user_name": "Akash keshav",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:42:02",
+    "serial_no": 61632
+  },
+  {
+    "entry_id": "T2026081919420913461635",
+    "atn_token": "260819134",
+    "employee_id": "TFC-134",
+    "user_name": "Nikhil Kumar",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:42:09",
+    "serial_no": 61635
+  },
+  {
+    "entry_id": "T2026081919421113461637",
+    "atn_token": "260819134",
+    "employee_id": "TFC-134",
+    "user_name": "Nikhil Kumar",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:42:11",
+    "serial_no": 61637
+  },
+  {
+    "entry_id": "T2026081919421313461638",
+    "atn_token": "260819134",
+    "employee_id": "TFC-134",
+    "user_name": "Nikhil Kumar",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:42:13",
+    "serial_no": 61638
+  },
+  {
+    "entry_id": "T2026081919421713461639",
+    "atn_token": "260819134",
+    "employee_id": "TFC-134",
+    "user_name": "Nikhil Kumar",
+    "attendance_date": "19/08/26",
+    "attendance_time": "19:42:17",
+    "serial_no": 61639
+  },
+  {
+    "entry_id": "T2026063019381901249325",
+    "atn_token": "260630012",
+    "employee_id": "TFC-012",
+    "user_name": "Harshit Pandey",
+    "attendance_date": "30/06/26",
+    "attendance_time": "19:38:19",
+    "serial_no": 554
+  }
+]

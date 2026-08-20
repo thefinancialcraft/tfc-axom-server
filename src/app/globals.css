@@ -1,0 +1,79 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #090d16;
+  --foreground: #38bdf8;
+}
+
+body {
+  background-color: #05080f;
+  color: #38bdf8;
+  font-family: 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Terminal Window styling */
+.terminal-window {
+  background: rgba(10, 15, 26, 0.95);
+  border: 1px solid #1e293b;
+  box-shadow: 0 0 35px rgba(14, 165, 233, 0.15), 0 0 10px rgba(0, 0, 0, 0.8);
+  border-radius: 8px;
+}
+
+.terminal-header {
+  background: #0f172a;
+  border-bottom: 1px solid #1e293b;
+}
+
+/* Subtle CRT Scanline overlay */
+.crt-overlay {
+  position: relative;
+}
+
+.crt-overlay::before {
+  content: " ";
+  display: block;
+  position: absolute;
+  top: 0; left: 0; bottom: 0; right: 0;
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
+  z-index: 20;
+  background-size: 100% 3px, 6px 100%;
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+/* Terminal Glow Effects */
+.text-glow-green {
+  text-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
+}
+
+.text-glow-cyan {
+  text-shadow: 0 0 8px rgba(56, 189, 248, 0.6);
+}
+
+.text-glow-amber {
+  text-shadow: 0 0 8px rgba(245, 158, 11, 0.6);
+}
+
+.border-glow-cyan {
+  box-shadow: 0 0 15px rgba(56, 189, 248, 0.2);
+}
+
+/* Custom terminal scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #090d16;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #0284c7;
+}
