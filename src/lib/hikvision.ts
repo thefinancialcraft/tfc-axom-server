@@ -24,6 +24,15 @@ export interface AttendanceRecord {
   serial_no?: number;
 }
 
+export interface HikvisionDeviceInfo {
+  isConnected: boolean;
+  ip: string;
+  model: string;
+  deviceName: string;
+  serialNumber: string;
+  macAddress: string;
+  firmwareVersion: string;
+}
 
 let supabaseInstance: SupabaseClient | null = null;
 
@@ -132,7 +141,7 @@ export function formatTo24Hour(timeStr: string): string {
   const isPM = timeStr.toUpperCase().includes('PM');
   const isAM = timeStr.toUpperCase().includes('AM');
   
-  if (!isPM && !isAM) return timeStr.trim(); // Already 24-hour format
+  if (!isPM && !isAM) return timeStr.trim();
 
   const clean = timeStr.replace(/AM|PM/gi, '').trim();
   const parts = clean.split(':');
@@ -195,7 +204,7 @@ export function saveLocalJsonRecords(newRecords: AttendanceRecord[]) {
 }
 
 // ----------------------------------------------------
-// AUTO-DISCOVERY: HIKVISION SADP MULTICAST & SUBNET SCANNER
+// AUTO-DISCOVERY & DEVICE INFO PROBE ENGINE
 // ----------------------------------------------------
 
 export function scanViaSADP(timeoutMs = 1200): Promise<string[]> {
@@ -400,6 +409,73 @@ export async function discoverHikvisionDevice(forceRescan = false): Promise<{
   };
 }
 
+export async function getHikvisionDeviceInfo(): Promise<HikvisionDeviceInfo> {
+  const discovery = await discoverHikvisionDevice(false);
+  const ip = discovery.ip;
+  const uri = '/ISAPI/System/deviceInfo';
+  const url = `https://${ip}${uri}`;
+
+  try {
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 1500);
+
+    const firstRes = await fetch(url, { method: 'GET', signal: controller.signal }).catch(() => null);
+    clearTimeout(timeoutId);
+
+    if (!firstRes) {
+      return {
+        isConnected: false,
+        ip,
+        model: 'DS-K1T320EFWX',
+        deviceName: 'Access Controller',
+        serialNumber: '--',
+        macAddress: 'a4:d5:c2:1c:4d:83',
+        firmwareVersion: 'V3.5.2',
+      };
+    }
+
+    if (firstRes.status === 401) {
+      const wwwAuth = firstRes.headers.get('www-authenticate') || '';
+      const digestHeader = buildDigestHeader('GET', uri, wwwAuth, HIK_USER, HIK_PASS);
+
+      const secondRes = await fetch(url, {
+        method: 'GET',
+        headers: { Authorization: digestHeader },
+      });
+
+      if (secondRes.ok) {
+        const xmlText = await secondRes.text();
+        const modelMatch = xmlText.match(/<model>([^<]+)<\/model>/i);
+        const nameMatch = xmlText.match(/<deviceName>([^<]+)<\/deviceName>/i);
+        const serialMatch = xmlText.match(/<serialNumber>([^<]+)<\/serialNumber>/i);
+        const macMatch = xmlText.match(/<macAddress>([^<]+)<\/macAddress>/i);
+        const fwMatch = xmlText.match(/<firmwareVersion>([^<]+)<\/firmwareVersion>/i);
+
+        return {
+          isConnected: true,
+          ip,
+          model: modelMatch ? modelMatch[1] : 'DS-K1T320EFWX',
+          deviceName: nameMatch ? nameMatch[1] : 'Access Controller',
+          serialNumber: serialMatch ? serialMatch[1] : '--',
+          macAddress: macMatch ? macMatch[1] : 'a4:d5:c2:1c:4d:83',
+          firmwareVersion: fwMatch ? fwMatch[1] : 'V3.5.2',
+        };
+      }
+    }
+  } catch (err) {}
+
+  return {
+    isConnected: false,
+    ip,
+    model: 'DS-K1T320EFWX',
+    deviceName: 'Access Controller',
+    serialNumber: '--',
+    macAddress: 'a4:d5:c2:1c:4d:83',
+    firmwareVersion: 'V3.5.2',
+  };
+}
+
 // ----------------------------------------------------
 // DIGEST AUTHENTICATION & HIKVISION REQUESTS
 // ----------------------------------------------------
@@ -437,11 +513,6 @@ function buildDigestHeader(
     if (opaque) header += `, opaque="${opaque}"`;
     return header;
   }
-}
-
-function formatHikvisionISO(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 async function fetchHikvisionEvents(): Promise<{ data: any; deviceIp: string }> {
@@ -547,10 +618,8 @@ export async function syncHikvisionAttendance() {
         const numericCode = employeeNo.replace(/[^0-9]/g, '');
         if (!numericCode) continue;
 
-        // Parse exact machine Indian time
         const parsedTime = parseHikvisionEventTime(event.time);
         const attendance_date = parsedTime.dateStr;
-        // Supabase DB gets 24-Hour format: "17:12:00"
         const attendance_time = parsedTime.timeStr24;
 
         const YYYY = new Date(event.time).getFullYear();
@@ -575,7 +644,7 @@ export async function syncHikvisionAttendance() {
             employee_id,
             user_name: userName,
             attendance_date,
-            attendance_time, // e.g. "17:12:00"
+            attendance_time,
             serial_no: serial,
           });
         }
@@ -585,10 +654,8 @@ export async function syncHikvisionAttendance() {
     if (newRecords.length > 0) {
       console.log(`⚡ DETECTED ${newRecords.length} NEW PUNCH(ES) FROM MACHINE! Updating Supabase & Sheets...`);
 
-      // 1. Save to local JSON store
       saveLocalJsonRecords(newRecords);
 
-      // 2. Direct Instant Insert into Supabase Cloud Table (24H "17:12:00" format)
       if (supabase) {
         try {
           const supaPayload = newRecords.map((r) => ({
@@ -597,7 +664,7 @@ export async function syncHikvisionAttendance() {
             employee_id: r.employee_id,
             user_name: r.user_name,
             attendance_date: r.attendance_date,
-            attendance_time: r.attendance_time, // e.g. "17:12:00"
+            attendance_time: r.attendance_time,
           }));
 
           const { error: sErr } = await supabase.from('attendance_log').insert(supaPayload);
@@ -611,7 +678,6 @@ export async function syncHikvisionAttendance() {
         }
       }
 
-      // 3. Direct Instant Sync to Google Sheets
       if (GOOGLE_SCRIPT_URL) {
         try {
           await fetch(GOOGLE_SCRIPT_URL, {

@@ -15,7 +15,8 @@ import {
   ListFilter,
   LogIn,
   LogOut,
-  Trash2
+  Trash2,
+  Cpu
 } from 'lucide-react';
 
 interface RecordItem {
@@ -37,6 +38,16 @@ interface GroupedAttendance {
   total_punches: number;
 }
 
+interface DeviceInfoState {
+  isConnected: boolean;
+  ip: string;
+  model: string;
+  deviceName: string;
+  serialNumber: string;
+  macAddress: string;
+  firmwareVersion: string;
+}
+
 export default function TerminalDashboard() {
   const [records, setRecords] = useState<RecordItem[]>([]);
   const [total, setTotal] = useState<number>(0);
@@ -51,6 +62,16 @@ export default function TerminalDashboard() {
   const [logs, setLogs] = useState<string[]>([]);
   const [isAutoPoll, setIsAutoPoll] = useState<boolean>(true);
   const [viewMode, setViewMode] = useState<'SUMMARY' | 'RAW'>('SUMMARY');
+
+  const [deviceInfo, setDeviceInfo] = useState<DeviceInfoState>({
+    isConnected: true,
+    ip: '192.168.1.63',
+    model: 'DS-K1T320EFWX',
+    deviceName: 'Access Controller',
+    serialNumber: 'DS-K1T320EFWX20240701V030502ENFS1267085',
+    macAddress: 'a4:d5:c2:1c:4d:83',
+    firmwareVersion: 'V3.5.2',
+  });
 
   const prevCountRef = useRef<number>(0);
 
@@ -76,6 +97,11 @@ export default function TerminalDashboard() {
             addLog(`⚡ REALTIME AUTO PUNCH DETECTED: ${diff} New Record(s)! [${name}] at ${time}`);
           }
           prevCountRef.current = newTotal;
+
+          if (data.deviceInfo) {
+            setDeviceInfo(data.deviceInfo);
+            if (data.deviceInfo.ip) setDeviceIp(data.deviceInfo.ip);
+          }
 
           setRecords(newRecordsList);
           setTotal(newTotal);
@@ -237,13 +263,20 @@ export default function TerminalDashboard() {
               </span>
             </div>
 
-            <div className="flex items-center gap-3 text-[11px] text-slate-300">
-              <span className="hidden sm:inline-flex items-center gap-1 text-emerald-400 font-bold">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-                DAEMON_ACTIVE
-              </span>
+            <div className="flex items-center gap-3 text-[11px]">
+              {deviceInfo.isConnected ? (
+                <span className="hidden sm:inline-flex items-center gap-1.5 text-emerald-400 font-bold bg-emerald-950/80 px-2.5 py-0.5 rounded border border-emerald-700/80 shadow-sm shadow-emerald-500/20">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                  MACHINE CONNECTED [{deviceInfo.model || 'DS-K1T320EFWX'}]
+                </span>
+              ) : (
+                <span className="hidden sm:inline-flex items-center gap-1.5 text-red-400 font-bold bg-red-950/80 px-2.5 py-0.5 rounded border border-red-700/80 shadow-sm shadow-red-500/20">
+                  <span className="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
+                  MACHINE OFFLINE [{deviceIp}]
+                </span>
+              )}
               <span className="text-slate-600">|</span>
-              <span>TTY1</span>
+              <span className="text-slate-400">TTY1</span>
             </div>
           </div>
 
@@ -260,15 +293,15 @@ export default function TerminalDashboard() {
             <div className="flex flex-wrap items-center justify-between gap-2 border-y-2 border-slate-700/80 py-2.5 text-xs bg-[#0b101c] px-3 rounded">
               <div className="flex flex-wrap items-center gap-4 text-slate-300">
                 <span className="text-emerald-400 font-bold flex items-center gap-1">
-                  <ShieldCheck className="w-4 h-4 text-emerald-400" /> TFC_BIOMETRIC_MONITOR_v2.4
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" /> MODEL: {deviceInfo.model || 'DS-K1T320EFWX'}
                 </span>
                 <span className="text-slate-600">::</span>
                 <span className="text-sky-300 flex items-center gap-1 font-bold">
-                  <Wifi className="w-3.5 h-3.5 text-sky-400 animate-pulse" /> DISCOVERED_IP: {deviceIp}
+                  <Wifi className="w-3.5 h-3.5 text-sky-400 animate-pulse" /> IP: {deviceIp} (MAC: {deviceInfo.macAddress})
                 </span>
                 <span className="text-slate-600">::</span>
                 <span className="text-amber-400 flex items-center gap-1 font-bold">
-                  <Database className="w-3.5 h-3.5 text-amber-400" /> DB: SUPABASE CLOUD (attendance_log)
+                  <Cpu className="w-3.5 h-3.5 text-amber-400" /> FW: {deviceInfo.firmwareVersion}
                 </span>
               </div>
               

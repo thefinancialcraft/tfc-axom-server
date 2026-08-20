@@ -1,5 +1,11 @@
 import { NextResponse } from 'next/server';
-import { getSupabaseClient, getLocalJsonRecords, formatTo12Hour, syncHikvisionAttendance } from '@/lib/hikvision';
+import {
+  getSupabaseClient,
+  getLocalJsonRecords,
+  formatTo12Hour,
+  syncHikvisionAttendance,
+  getHikvisionDeviceInfo
+} from '@/lib/hikvision';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -19,6 +25,7 @@ export async function GET() {
 
     const supabase = getSupabaseClient();
     const localRecords = getLocalJsonRecords();
+    const deviceInfo = await getHikvisionDeviceInfo();
 
     const now = new Date();
     
@@ -83,6 +90,7 @@ export async function GET() {
       todayDate: todayStrFull,
       total: finalRecords.length,
       records: finalRecords || [],
+      deviceInfo,
     });
   } catch (error: any) {
     console.error('API Attendance fetch error:', error);
