@@ -24,6 +24,7 @@ export interface AttendanceRecord {
   serial_no?: number;
 }
 
+
 let supabaseInstance: SupabaseClient | null = null;
 
 export function getSupabaseClient(): SupabaseClient | null {
