@@ -256,7 +256,8 @@ async function initRelay() {
         }
       }
     } catch (err) {
-      // Machine may be offline or unreachable
+      const time = new Date().toLocaleTimeString();
+      console.warn(`[${time}] ⚠️ Machine offline/unreachable [${HIK_IP}]. Retrying scan in 10s... (${err.message})`);
     } finally {
       isSyncing = false;
     }

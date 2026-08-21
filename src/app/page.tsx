@@ -296,24 +296,37 @@ export default function TerminalDashboard() {
     setLastSyncTime(new Date().toLocaleTimeString());
   }, [fetchAttendanceData, addLog, deviceIp]);
 
-  // Polling ONLY runs after status check completes AND machine is CONNECTED!
+  // Dynamic Auto Polling & Offline Auto-Scan Engine (2s Online Polling, 10s Offline Scanning)
   useEffect(() => {
     let interval: any;
 
-    if (!isCheckingStatus && deviceInfo && deviceInfo.isConnected && isAutoPoll) {
-      addLog(`POLLING_HEARTBEAT: Machine connected [${deviceInfo.ip}]. Polling active (every 2.0s).`);
-      interval = setInterval(() => {
-        addLog(`TICK: 2.0s poll tick triggered.`);
-        fetchAttendanceData();
-      }, 2000);
-    } else if (!isCheckingStatus && (!deviceInfo || !deviceInfo.isConnected)) {
-      addLog(`POLLING_IDLE: Auto-polling paused because machine is currently OFFLINE.`);
+    if (!isCheckingStatus && isAutoPoll) {
+      const isOnline = deviceInfo && deviceInfo.isConnected;
+
+      if (isOnline) {
+        addLog(`POLLING_HEARTBEAT: Machine connected [${deviceInfo.ip}]. Polling active (every 2.0s).`);
+        interval = setInterval(() => {
+          addLog(`TICK: 2.0s poll tick triggered.`);
+          fetchAttendanceData();
+        }, 2000);
+      } else {
+        const targetIp = deviceInfo?.ip || deviceIp;
+        addLog(`OFFLINE_SCAN: Machine offline [${targetIp}]. Auto-scanning network every 10.0s for reconnection...`);
+
+        interval = setInterval(async () => {
+          addLog(`OFFLINE_RETRY: Probing machine [${targetIp}] (10.0s scan tick)...`);
+          try {
+            fetch('/api/scan').catch(() => null);
+          } catch {}
+          fetchAttendanceData();
+        }, 10000);
+      }
     }
 
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [isCheckingStatus, deviceInfo, isAutoPoll, fetchAttendanceData, addLog]);
+  }, [isCheckingStatus, deviceInfo, isAutoPoll, fetchAttendanceData, addLog, deviceIp]);
 
   const isRecordMatchingDate = (recordDateStr: string, targetIso: string) => {
     if (!recordDateStr) return false;
