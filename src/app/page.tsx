@@ -259,69 +259,75 @@ export default function TerminalDashboard() {
 
   return (
     <div className={`min-h-screen p-2 sm:p-4 md:p-6 font-mono transition-colors duration-300 selection:bg-emerald-500 selection:text-black ${
-      isLight ? 'bg-slate-100 text-slate-900' : 'bg-[#05080f] text-sky-400'
+      isLight ? 'bg-white text-black' : 'bg-[#05080f] text-sky-400'
     }`}>
       <div className="max-w-7xl mx-auto space-y-4">
         
         {/* Terminal Main Container Window */}
         <div className={`terminal-window rounded-lg border-2 overflow-hidden transition-colors duration-300 ${
           isLight
-            ? 'bg-white border-slate-300 shadow-xl'
+            ? 'bg-white border-2 border-black shadow-xl'
             : 'bg-[#090d16]/95 border-slate-700/80 shadow-2xl shadow-sky-500/10'
         }`}>
           
           {/* Terminal Window Header Bar */}
           <div className={`terminal-header px-4 py-2.5 border-b-2 flex items-center justify-between transition-colors ${
-            isLight ? 'bg-slate-200 border-slate-300' : 'bg-[#0f172a] border-slate-700'
+            isLight ? 'bg-white border-b-2 border-black text-black' : 'bg-[#0f172a] border-slate-700 text-slate-300'
           }`}>
             <div className="flex items-center gap-2">
               <span className="w-3 h-3 rounded-full bg-red-500/90 inline-block shadow-sm shadow-red-500/50"></span>
               <span className="w-3 h-3 rounded-full bg-yellow-500/90 inline-block shadow-sm shadow-yellow-500/50"></span>
               <span className="w-3 h-3 rounded-full bg-emerald-500/90 inline-block shadow-sm shadow-emerald-500/50"></span>
-              <span className={`ml-2 text-xs font-semibold flex items-center gap-1.5 ${
-                isLight ? 'text-slate-800' : 'text-slate-300'
+              <span className={`ml-2 text-xs font-bold flex items-center gap-1.5 ${
+                isLight ? 'text-black' : 'text-slate-300'
               }`}>
-                <Terminal className="w-3.5 h-3.5 text-emerald-500" />
+                <Terminal className={`w-3.5 h-3.5 ${isLight ? 'text-black' : 'text-emerald-500'}`} />
                 root@tfc-biometric-monitor: /srv/www/tfc-biometric-monitor (bash)
               </span>
             </div>
 
             <div className="flex items-center gap-3 text-[11px]">
               {isCheckingStatus ? (
-                <span className="hidden sm:inline-flex items-center gap-1.5 text-amber-600 font-bold bg-amber-100 px-2.5 py-0.5 rounded border border-amber-300 shadow-sm">
-                  <RotateCw className="w-3 h-3 text-amber-600 animate-spin" />
+                <span className={`hidden sm:inline-flex items-center gap-1.5 font-bold px-2.5 py-0.5 rounded border-2 shadow-sm ${
+                  isLight ? 'bg-white text-black border-black' : 'text-amber-400 bg-amber-950/80 border-amber-700/80 shadow-amber-500/20'
+                }`}>
+                  <RotateCw className={`w-3 h-3 animate-spin ${isLight ? 'text-black' : 'text-amber-400'}`} />
                   FETCHING DEVICE STATUS...
                 </span>
               ) : deviceInfo && deviceInfo.isConnected ? (
-                <span className="hidden sm:inline-flex items-center gap-1.5 text-emerald-600 font-bold bg-emerald-100 px-2.5 py-0.5 rounded border border-emerald-300 shadow-sm">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+                <span className={`hidden sm:inline-flex items-center gap-1.5 font-bold px-2.5 py-0.5 rounded border-2 shadow-sm ${
+                  isLight ? 'bg-white text-black border-black' : 'text-emerald-400 bg-emerald-950/80 border-emerald-700/80 shadow-emerald-500/20'
+                }`}>
+                  <span className={`w-2 h-2 rounded-full animate-ping ${isLight ? 'bg-black' : 'bg-emerald-400'}`}></span>
                   MACHINE CONNECTED [{deviceInfo.model || 'DS-K1T320EFWX'}]
                 </span>
               ) : (
-                <span className="hidden sm:inline-flex items-center gap-1.5 text-red-600 font-bold bg-red-100 px-2.5 py-0.5 rounded border border-red-300 shadow-sm">
-                  <span className="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
+                <span className={`hidden sm:inline-flex items-center gap-1.5 font-bold px-2.5 py-0.5 rounded border-2 shadow-sm ${
+                  isLight ? 'bg-white text-black border-black' : 'text-red-400 bg-red-950/80 border-red-700/80 shadow-red-500/20'
+                }`}>
+                  <span className={`w-2 h-2 rounded-full animate-ping ${isLight ? 'bg-black' : 'bg-red-500'}`}></span>
                   MACHINE OFFLINE [{deviceIp}]
                 </span>
               )}
               
-              <span className={isLight ? 'text-slate-400' : 'text-slate-600'}>|</span>
-              <span className={isLight ? 'text-slate-600 font-semibold' : 'text-slate-400'}>TTY1</span>
+              <span className={isLight ? 'text-black font-bold' : 'text-slate-600'}>|</span>
+              <span className={isLight ? 'text-black font-bold' : 'text-slate-400'}>TTY1</span>
               
-              <span className={isLight ? 'text-slate-400' : 'text-slate-600'}>|</span>
+              <span className={isLight ? 'text-black font-bold' : 'text-slate-600'}>|</span>
               
               {/* Light / Dark Mode Toggle Button */}
               <button
                 onClick={() => setTheme(isLight ? 'DARK' : 'LIGHT')}
-                className={`flex items-center gap-1 px-2.5 py-0.5 rounded border text-[11px] font-bold transition-all shadow-sm active:scale-95 ${
+                className={`flex items-center gap-1 px-2.5 py-0.5 rounded border-2 text-[11px] font-bold transition-all shadow-sm active:scale-95 ${
                   isLight
-                    ? 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200'
+                    ? 'bg-white text-black border-black hover:bg-slate-100'
                     : 'bg-slate-900 text-sky-300 border-slate-700 hover:bg-slate-800'
                 }`}
                 title="Toggle Light / Dark Theme"
               >
                 {isLight ? (
                   <>
-                    <Sun className="w-3 h-3 text-amber-600" />
+                    <Sun className="w-3 h-3 text-black" />
                     <span>LIGHT</span>
                   </>
                 ) : (
@@ -336,9 +342,9 @@ export default function TerminalDashboard() {
 
           {/* ASCII Banner & System Specs */}
           <div className="p-4 sm:p-6 space-y-5">
-            <pre className={`text-[9px] sm:text-[11px] leading-tight font-mono hidden sm:block overflow-x-auto select-none border p-2.5 rounded ${
+            <pre className={`text-[9px] sm:text-[11px] leading-tight font-mono hidden sm:block overflow-x-auto select-none border-2 p-2.5 rounded ${
               isLight
-                ? 'bg-slate-100 text-slate-800 border-slate-300'
+                ? 'bg-white text-black border-black font-bold'
                 : 'bg-[#060a12] text-emerald-400/90 border-slate-800'
             }`}>
 {`  _____ _____ ____   ____ ___  __  __ _____ _____ ____ ___ ____   __  __  ___  _  _____ _____ ___  ____  
@@ -350,95 +356,95 @@ export default function TerminalDashboard() {
 
             <div className={`flex flex-wrap items-center justify-between gap-2 border-y-2 py-2.5 text-xs px-3 rounded ${
               isLight
-                ? 'bg-slate-100 border-slate-300 text-slate-800'
+                ? 'bg-white border-black text-black font-bold'
                 : 'bg-[#0b101c] border-slate-700/80 text-slate-300'
             }`}>
               <div className="flex flex-wrap items-center gap-4">
-                <span className="text-emerald-600 font-bold flex items-center gap-1">
-                  <ShieldCheck className="w-4 h-4 text-emerald-600" /> MODEL: {deviceInfo?.model || 'DS-K1T320EFWX'}
+                <span className={`font-bold flex items-center gap-1 ${isLight ? 'text-black' : 'text-emerald-400'}`}>
+                  <ShieldCheck className={`w-4 h-4 ${isLight ? 'text-black' : 'text-emerald-400'}`} /> MODEL: {deviceInfo?.model || 'DS-K1T320EFWX'}
                 </span>
-                <span className={isLight ? 'text-slate-400' : 'text-slate-600'}>::</span>
-                <span className="text-sky-600 flex items-center gap-1 font-bold">
-                  <Wifi className="w-3.5 h-3.5 text-sky-600 animate-pulse" /> IP: {deviceIp} (MAC: {deviceInfo?.macAddress || 'a4:d5:c2:1c:4d:83'})
+                <span className={isLight ? 'text-black font-bold' : 'text-slate-600'}>::</span>
+                <span className={`font-bold flex items-center gap-1 ${isLight ? 'text-black' : 'text-sky-300'}`}>
+                  <Wifi className={`w-3.5 h-3.5 animate-pulse ${isLight ? 'text-black' : 'text-sky-400'}`} /> IP: {deviceIp} (MAC: {deviceInfo?.macAddress || 'a4:d5:c2:1c:4d:83'})
                 </span>
-                <span className={isLight ? 'text-slate-400' : 'text-slate-600'}>::</span>
-                <span className="text-amber-600 flex items-center gap-1 font-bold">
-                  <Cpu className="w-3.5 h-3.5 text-amber-600" /> FW: {deviceInfo?.firmwareVersion || 'V3.5.2'}
+                <span className={isLight ? 'text-black font-bold' : 'text-slate-600'}>::</span>
+                <span className={`font-bold flex items-center gap-1 ${isLight ? 'text-black' : 'text-amber-400'}`}>
+                  <Cpu className={`w-3.5 h-3.5 ${isLight ? 'text-black' : 'text-amber-400'}`} /> FW: {deviceInfo?.firmwareVersion || 'V3.5.2'}
                 </span>
               </div>
               
               <div className="text-xs font-bold">
-                DATE: <span className={isLight ? 'text-emerald-700' : 'text-emerald-300'}>{todayDate || 'FETCHING...'}</span>
+                DATE: <span className={isLight ? 'text-black underline' : 'text-emerald-300'}>{todayDate || 'FETCHING...'}</span>
               </div>
             </div>
 
             {/* Quick Stats Grid */}
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              <div className={`p-3 border-2 rounded shadow-md ${
-                isLight ? 'bg-slate-50 border-slate-300' : 'bg-[#0c1220] border-slate-700/90'
+              <div className={`p-3 border-2 rounded shadow-none ${
+                isLight ? 'bg-white border-black text-black' : 'bg-[#0c1220] border-slate-700/90'
               }`}>
-                <div className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">CURRENT TIME</div>
-                <div className="text-base sm:text-lg font-bold text-amber-600 mt-1 truncate flex items-center gap-1.5">
-                  <Clock className="w-4 h-4 text-amber-600 animate-pulse" />
+                <div className={`text-[10px] uppercase tracking-wider font-bold ${isLight ? 'text-black' : 'text-slate-400'}`}>CURRENT TIME</div>
+                <div className={`text-base sm:text-lg font-bold mt-1 truncate flex items-center gap-1.5 ${isLight ? 'text-black' : 'text-amber-400 text-glow-amber'}`}>
+                  <Clock className={`w-4 h-4 animate-pulse ${isLight ? 'text-black' : 'text-amber-400'}`} />
                   {currentTime || '00:00:00 AM'}
                 </div>
-                <div className="text-[10px] text-slate-500 font-medium">Live Indian Clock (IST)</div>
+                <div className={`text-[10px] font-medium ${isLight ? 'text-black' : 'text-slate-500'}`}>Live Indian Clock (IST)</div>
               </div>
 
-              <div className={`p-3 border-2 rounded shadow-md ${
-                isLight ? 'bg-slate-50 border-slate-300' : 'bg-[#0c1220] border-slate-700/90'
+              <div className={`p-3 border-2 rounded shadow-none ${
+                isLight ? 'bg-white border-black text-black' : 'bg-[#0c1220] border-slate-700/90'
               }`}>
-                <div className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">TOTAL PUNCHES</div>
-                <div className="text-2xl font-bold text-emerald-600 mt-0.5">{total}</div>
-                <div className="text-[10px] text-slate-500 font-medium">Records today</div>
+                <div className={`text-[10px] uppercase tracking-wider font-bold ${isLight ? 'text-black' : 'text-slate-400'}`}>TOTAL PUNCHES</div>
+                <div className={`text-2xl font-bold mt-0.5 ${isLight ? 'text-black' : 'text-emerald-400 text-glow-green'}`}>{total}</div>
+                <div className={`text-[10px] font-medium ${isLight ? 'text-black' : 'text-slate-500'}`}>Records today</div>
               </div>
 
-              <div className={`p-3 border-2 rounded shadow-md ${
-                isLight ? 'bg-slate-50 border-slate-300' : 'bg-[#0c1220] border-slate-700/90'
+              <div className={`p-3 border-2 rounded shadow-none ${
+                isLight ? 'bg-white border-black text-black' : 'bg-[#0c1220] border-slate-700/90'
               }`}>
-                <div className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">EMPLOYEES PRESENT</div>
-                <div className="text-2xl font-bold text-sky-600 mt-0.5">{groupedList.length}</div>
-                <div className="text-[10px] text-slate-500 font-medium">Unique Users Today</div>
+                <div className={`text-[10px] uppercase tracking-wider font-bold ${isLight ? 'text-black' : 'text-slate-400'}`}>EMPLOYEES PRESENT</div>
+                <div className={`text-2xl font-bold mt-0.5 ${isLight ? 'text-black' : 'text-sky-400 text-glow-cyan'}`}>{groupedList.length}</div>
+                <div className={`text-[10px] font-medium ${isLight ? 'text-black' : 'text-slate-500'}`}>Unique Users Today</div>
               </div>
 
-              <div className={`p-3 border-2 rounded shadow-md ${
-                isLight ? 'bg-slate-50 border-slate-300' : 'bg-[#0c1220] border-slate-700/90'
+              <div className={`p-3 border-2 rounded shadow-none ${
+                isLight ? 'bg-white border-black text-black' : 'bg-[#0c1220] border-slate-700/90'
               }`}>
-                <div className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">MACHINE FETCH TIME</div>
-                <div className="text-base font-bold text-sky-600 mt-1 truncate">{lastSyncTime}</div>
-                <div className="text-[10px] text-slate-500 font-medium">Device Live Poll</div>
+                <div className={`text-[10px] uppercase tracking-wider font-bold ${isLight ? 'text-black' : 'text-slate-400'}`}>MACHINE FETCH TIME</div>
+                <div className={`text-base font-bold mt-1 truncate ${isLight ? 'text-black' : 'text-sky-400 text-glow-cyan'}`}>{lastSyncTime}</div>
+                <div className={`text-[10px] font-medium ${isLight ? 'text-black' : 'text-slate-400'}`}>Device Live Poll</div>
               </div>
 
-              <div className={`p-3 border-2 rounded shadow-md ${
-                isLight ? 'bg-slate-50 border-slate-300' : 'bg-[#0c1220] border-slate-700/90'
+              <div className={`p-3 border-2 rounded shadow-none ${
+                isLight ? 'bg-white border-black text-black' : 'bg-[#0c1220] border-slate-700/90'
               }`}>
-                <div className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">DB LAST UPDATE TIME</div>
-                <div className="text-base font-bold text-emerald-600 mt-1 truncate">
+                <div className={`text-[10px] uppercase tracking-wider font-bold ${isLight ? 'text-black' : 'text-slate-400'}`}>DB LAST UPDATE TIME</div>
+                <div className={`text-base font-bold mt-1 truncate ${isLight ? 'text-black' : 'text-emerald-400 text-glow-green'}`}>
                   {records.length > 0 ? records[0].attendance_time : '--'}
                 </div>
-                <div className="text-[10px] text-slate-500 font-medium">Supabase Cloud DB</div>
+                <div className={`text-[10px] font-medium ${isLight ? 'text-black' : 'text-slate-400'}`}>Supabase Cloud DB</div>
               </div>
             </div>
 
             {/* CLI Command Bar & Controls */}
-            <div className={`border-2 p-3 rounded space-y-3 shadow-md ${
-              isLight ? 'bg-slate-100 border-slate-300' : 'bg-[#0c121e] border-slate-700/90'
+            <div className={`border-2 p-3 rounded space-y-3 shadow-none ${
+              isLight ? 'bg-white border-black text-black' : 'bg-[#0c121e] border-slate-700/90'
             }`}>
               <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
                 
                 {/* Search Bar */}
                 <div className={`flex-1 flex items-center gap-2 px-3 py-1.5 rounded border-2 ${
-                  isLight ? 'bg-white border-slate-300 focus-within:border-sky-500' : 'bg-slate-950 border-slate-700 focus-within:border-sky-400'
+                  isLight ? 'bg-white border-black focus-within:border-black' : 'bg-slate-950 border-slate-700 focus-within:border-sky-400'
                 }`}>
-                  <span className="text-emerald-600 font-bold text-xs select-none">root@axom-server:~#</span>
-                  <span className="text-slate-400 text-xs select-none">grep --query=</span>
+                  <span className={`font-bold text-xs select-none ${isLight ? 'text-black' : 'text-emerald-400'}`}>root@axom-server:~#</span>
+                  <span className={`text-xs select-none ${isLight ? 'text-black font-semibold' : 'text-slate-500'}`}>grep --query=</span>
                   <input
                     type="text"
                     placeholder='"search employee or ID..."'
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    className={`flex-1 bg-transparent border-none text-xs focus:outline-none font-mono ${
-                      isLight ? 'text-slate-900 placeholder-slate-400' : 'text-sky-200 placeholder-slate-600'
+                    className={`flex-1 bg-transparent border-none text-xs focus:outline-none font-mono font-bold ${
+                      isLight ? 'text-black placeholder-slate-500' : 'text-sky-200 placeholder-slate-600'
                     }`}
                   />
                 </div>
@@ -448,22 +454,22 @@ export default function TerminalDashboard() {
                   <button
                     onClick={scanLocalNetwork}
                     disabled={isScanning}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded border-2 text-xs font-semibold transition-all disabled:opacity-50 active:scale-95 shadow-sm ${
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded border-2 text-xs font-bold transition-all disabled:opacity-50 active:scale-95 ${
                       isLight
-                        ? 'bg-sky-100 border-sky-300 text-sky-800 hover:bg-sky-200'
+                        ? 'bg-white border-black text-black hover:bg-slate-100'
                         : 'bg-sky-950/80 border-sky-500/50 text-sky-300 hover:bg-sky-900/60'
                     }`}
                   >
-                    <Radar className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin text-amber-500' : 'text-sky-600'}`} />
+                    <Radar className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin text-black' : isLight ? 'text-black' : 'text-sky-400'}`} />
                     <span>{isScanning ? './scanning_subnet...' : './scan_network'}</span>
                   </button>
 
                   <button
                     onClick={triggerManualSync}
                     disabled={isSyncing}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded border-2 text-xs font-semibold transition-all disabled:opacity-50 active:scale-95 shadow-sm ${
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded border-2 text-xs font-bold transition-all disabled:opacity-50 active:scale-95 ${
                       isLight
-                        ? 'bg-emerald-100 border-emerald-300 text-emerald-800 hover:bg-emerald-200'
+                        ? 'bg-white border-black text-black hover:bg-slate-100'
                         : 'bg-emerald-950/80 border-emerald-500/50 text-emerald-400 hover:bg-emerald-900/60'
                     }`}
                   >
@@ -473,10 +479,10 @@ export default function TerminalDashboard() {
 
                   <button
                     onClick={() => setIsAutoPoll(!isAutoPoll)}
-                    className={`px-3 py-1.5 rounded border-2 text-xs font-semibold transition-all ${
+                    className={`px-3 py-1.5 rounded border-2 text-xs font-bold transition-all ${
                       isAutoPoll
                         ? isLight
-                          ? 'bg-slate-200 border-slate-300 text-slate-800'
+                          ? 'bg-white border-black text-black'
                           : 'bg-slate-900 border-slate-700 text-slate-300'
                         : 'bg-red-950 border-red-800 text-red-400'
                     }`}
@@ -489,16 +495,18 @@ export default function TerminalDashboard() {
 
             {/* View Mode Toggle Header */}
             <div className={`flex items-center justify-between px-4 py-2 border-2 rounded-t border-b-0 text-xs ${
-              isLight ? 'bg-slate-200 border-slate-300 text-slate-800' : 'bg-[#0b101c] border-slate-700/90 text-slate-300'
+              isLight ? 'bg-white border-black text-black font-bold' : 'bg-[#0b101c] border-slate-700/90 text-slate-300'
             }`}>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setViewMode('SUMMARY')}
                   className={`flex items-center gap-1.5 px-3 py-1 rounded font-bold transition-all ${
                     viewMode === 'SUMMARY'
-                      ? 'bg-emerald-500 text-black shadow-md shadow-emerald-500/20 border border-emerald-400'
+                      ? isLight
+                        ? 'bg-black text-white border-2 border-black'
+                        : 'bg-emerald-500 text-black shadow-md shadow-emerald-500/20 border border-emerald-400'
                       : isLight
-                      ? 'bg-slate-100 text-slate-700 border-2 border-slate-300 hover:text-slate-900'
+                      ? 'bg-white text-black border-2 border-black hover:bg-slate-100'
                       : 'bg-slate-900 text-slate-400 border-2 border-slate-700 hover:text-slate-200'
                   }`}
                 >
@@ -510,9 +518,11 @@ export default function TerminalDashboard() {
                   onClick={() => setViewMode('RAW')}
                   className={`flex items-center gap-1.5 px-3 py-1 rounded font-bold transition-all ${
                     viewMode === 'RAW'
-                      ? 'bg-sky-500 text-black shadow-md shadow-sky-500/20 border border-sky-400'
+                      ? isLight
+                        ? 'bg-black text-white border-2 border-black'
+                        : 'bg-sky-500 text-black shadow-md shadow-sky-500/20 border border-sky-400'
                       : isLight
-                      ? 'bg-slate-100 text-slate-700 border-2 border-slate-300 hover:text-slate-900'
+                      ? 'bg-white text-black border-2 border-black hover:bg-slate-100'
                       : 'bg-slate-900 text-slate-400 border-2 border-slate-700 hover:text-slate-200'
                   }`}
                 >
@@ -521,7 +531,7 @@ export default function TerminalDashboard() {
                 </button>
               </div>
 
-              <div className="text-[11px] font-semibold hidden md:block">
+              <div className="text-[11px] font-bold hidden md:block">
                 {viewMode === 'SUMMARY'
                   ? `EMPLOYEES: ${groupedList.length} UNIQUE RECORD(S)`
                   : `RAW PUNCHES: ${filteredRecords.length} ENTRIES`}
@@ -529,8 +539,8 @@ export default function TerminalDashboard() {
             </div>
 
             {/* Terminal Table Display */}
-            <div className={`border-2 rounded-b overflow-hidden shadow-lg ${
-              isLight ? 'bg-white border-slate-300' : 'bg-[#070b14] border-slate-700/90'
+            <div className={`border-2 rounded-b overflow-hidden ${
+              isLight ? 'bg-white border-black text-black' : 'bg-[#070b14] border-slate-700/90'
             }`}>
               
               {viewMode === 'SUMMARY' ? (
@@ -538,41 +548,41 @@ export default function TerminalDashboard() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs font-mono border-collapse">
                     <thead className={`border-b-2 select-none ${
-                      isLight ? 'bg-slate-200 text-slate-800 border-slate-300' : 'bg-[#090e1a] text-slate-300 border-slate-700'
+                      isLight ? 'bg-white text-black border-black font-bold' : 'bg-[#090e1a] text-slate-300 border-slate-700'
                     }`}>
                       <tr>
-                        <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-slate-300' : 'border-slate-700'}`}>EMPLOYEE_ID</th>
-                        <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-slate-300' : 'border-slate-700'}`}>USER_NAME</th>
-                        <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-slate-300' : 'border-slate-700'}`}>ATTENDANCE_DATE</th>
-                        <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-slate-300 text-emerald-700' : 'border-slate-700 text-emerald-400'}`}>
+                        <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-black' : 'border-slate-700'}`}>EMPLOYEE_ID</th>
+                        <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-black' : 'border-slate-700'}`}>USER_NAME</th>
+                        <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-black' : 'border-slate-700'}`}>ATTENDANCE_DATE</th>
+                        <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-black text-black' : 'border-slate-700 text-emerald-400'}`}>
                           <span className="flex items-center gap-1">
                             <LogIn className="w-3.5 h-3.5" /> CHECK-IN (FIRST ENTRY)
                           </span>
                         </th>
-                        <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-slate-300 text-sky-700' : 'border-slate-700 text-sky-400'}`}>
+                        <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-black text-black' : 'border-slate-700 text-sky-400'}`}>
                           <span className="flex items-center gap-1">
                             <LogOut className="w-3.5 h-3.5" /> CHECK-OUT (LAST ENTRY)
                           </span>
                         </th>
-                        <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-slate-300' : 'border-slate-700'}`}>PUNCH_COUNT</th>
+                        <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-black' : 'border-slate-700'}`}>PUNCH_COUNT</th>
                         <th className="py-2.5 px-3 font-bold">STATUS</th>
                       </tr>
                     </thead>
                     <tbody className={`divide-y border-t ${
-                      isLight ? 'border-slate-300 divide-slate-200' : 'border-slate-700/80 divide-slate-800'
+                      isLight ? 'border-black divide-black' : 'border-slate-700/80 divide-slate-800'
                     }`}>
                       {loading ? (
                         <tr>
-                          <td colSpan={7} className={`py-8 text-center border ${isLight ? 'border-slate-200 text-slate-500' : 'border-slate-800 text-slate-500'}`}>
+                          <td colSpan={7} className={`py-8 text-center border ${isLight ? 'border-black text-black font-bold' : 'border-slate-800 text-slate-500'}`}>
                             <div className="flex items-center justify-center gap-2">
-                              <RotateCw className="w-4 h-4 animate-spin text-emerald-500" />
+                              <RotateCw className="w-4 h-4 animate-spin text-black" />
                               <span>EXEC: calculating employee Check-In / Check-Out summaries...</span>
                             </div>
                           </td>
                         </tr>
                       ) : groupedList.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className={`py-8 text-center border ${isLight ? 'border-slate-200 text-slate-500' : 'border-slate-800 text-slate-500'}`}>
+                          <td colSpan={7} className={`py-8 text-center border ${isLight ? 'border-black text-black font-bold' : 'border-slate-800 text-slate-500'}`}>
                             [NO ATTENDANCE RECORDS FOUND FOR TODAY]
                           </td>
                         </tr>
@@ -581,71 +591,71 @@ export default function TerminalDashboard() {
                           <tr
                             key={`${item.employee_id}_${item.attendance_date}`}
                             className={`border-b transition-colors group ${
-                              isLight ? 'hover:bg-sky-50 border-slate-200' : 'hover:bg-sky-950/40 border-slate-800/80'
+                              isLight ? 'bg-white hover:bg-slate-100 border-black text-black' : 'hover:bg-sky-950/40 border-slate-800/80'
                             }`}
                           >
-                            <td className={`py-2.5 px-3 border-r ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}>
+                            <td className={`py-2.5 px-3 border-r ${isLight ? 'border-black' : 'border-slate-800/80'}`}>
                               <span className={`font-bold px-1.5 py-0.5 rounded border ${
                                 isLight
-                                  ? 'text-emerald-800 bg-emerald-100 border-emerald-300'
+                                  ? 'text-black bg-white border-black'
                                   : 'text-emerald-400 bg-emerald-950/80 border-emerald-800/80'
                               }`}>
                                 {item.employee_id}
                               </span>
                             </td>
-                            <td className={`py-2.5 px-3 border-r font-medium ${
-                              isLight ? 'border-slate-200 text-slate-900 group-hover:text-sky-700' : 'border-slate-800/80 text-white group-hover:text-sky-300'
+                            <td className={`py-2.5 px-3 border-r font-bold ${
+                              isLight ? 'border-black text-black' : 'border-slate-800/80 text-white group-hover:text-sky-300'
                             }`}>
                               {item.user_name}
                             </td>
                             <td className={`py-2.5 px-3 border-r font-medium ${
-                              isLight ? 'border-slate-200 text-slate-600' : 'border-slate-800/80 text-slate-300'
+                              isLight ? 'border-black text-black' : 'border-slate-800/80 text-slate-300'
                             }`}>
                               {item.attendance_date}
                             </td>
-                            <td className={`py-2.5 px-3 border-r ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}>
+                            <td className={`py-2.5 px-3 border-r ${isLight ? 'border-black' : 'border-slate-800/80'}`}>
                               <span className={`font-bold px-2 py-1 rounded border inline-flex items-center gap-1 ${
                                 isLight
-                                  ? 'text-emerald-800 bg-emerald-100 border-emerald-300'
+                                  ? 'text-black bg-white border-black'
                                   : 'text-emerald-300 bg-emerald-950/90 border-emerald-700/80'
                               }`}>
-                                <LogIn className="w-3 h-3 text-emerald-500" />
+                                <LogIn className={`w-3 h-3 ${isLight ? 'text-black' : 'text-emerald-400'}`} />
                                 {item.check_in_time}
                               </span>
                             </td>
-                            <td className={`py-2.5 px-3 border-r ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}>
+                            <td className={`py-2.5 px-3 border-r ${isLight ? 'border-black' : 'border-slate-800/80'}`}>
                               {item.check_out_time !== '--' ? (
                                 <span className={`font-bold px-2 py-1 rounded border inline-flex items-center gap-1 ${
                                   isLight
-                                    ? 'text-sky-800 bg-sky-100 border-sky-300'
+                                    ? 'text-black bg-white border-black'
                                     : 'text-sky-300 bg-sky-950/90 border-sky-700/80'
                                 }`}>
-                                  <LogOut className="w-3 h-3 text-sky-500" />
+                                  <LogOut className={`w-3 h-3 ${isLight ? 'text-black' : 'text-sky-400'}`} />
                                   {item.check_out_time}
                                 </span>
                               ) : (
                                 <span className={`font-semibold px-2 py-1 rounded border inline-block ${
-                                  isLight ? 'text-slate-500 bg-slate-100 border-slate-300' : 'text-slate-400 bg-slate-900 border-slate-800'
+                                  isLight ? 'text-black bg-white border-black' : 'text-slate-400 bg-slate-900 border-slate-800'
                                 }`}>
                                   -- (IN ONLY)
                                 </span>
                               )}
                             </td>
                             <td className={`py-2.5 px-3 border-r font-bold ${
-                              isLight ? 'border-slate-200 text-amber-700' : 'border-slate-800/80 text-amber-400'
+                              isLight ? 'border-black text-black' : 'border-slate-800/80 text-amber-400'
                             }`}>
                               {item.total_punches} {item.total_punches === 1 ? 'Punch' : 'Punches'}
                             </td>
                             <td className="py-2.5 px-3">
                               {item.check_out_time !== '--' ? (
                                 <span className={`text-[11px] font-bold px-2 py-0.5 rounded border ${
-                                  isLight ? 'text-sky-800 bg-sky-100 border-sky-300' : 'text-sky-300 bg-sky-950/80 border-sky-700/80'
+                                  isLight ? 'text-black bg-white border-black' : 'text-sky-300 bg-sky-950/80 border-sky-700/80'
                                 }`}>
                                   CHECKED OUT
                                 </span>
                               ) : (
                                 <span className={`text-[11px] font-bold px-2 py-0.5 rounded border animate-pulse ${
-                                  isLight ? 'text-emerald-800 bg-emerald-100 border-emerald-300' : 'text-emerald-400 bg-emerald-950/80 border-emerald-700/80'
+                                  isLight ? 'text-black bg-white border-black' : 'text-emerald-400 bg-emerald-950/80 border-emerald-700/80'
                                 }`}>
                                   IN OFFICE
                                 </span>
@@ -662,33 +672,33 @@ export default function TerminalDashboard() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs font-mono border-collapse">
                     <thead className={`border-b-2 select-none ${
-                      isLight ? 'bg-slate-200 text-slate-800 border-slate-300' : 'bg-[#090e1a] text-slate-300 border-slate-700'
+                      isLight ? 'bg-white text-black border-black font-bold' : 'bg-[#090e1a] text-slate-300 border-slate-700'
                     }`}>
                       <tr>
-                        <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-slate-300' : 'border-slate-700'}`}>SERIAL</th>
-                        <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-slate-300' : 'border-slate-700'}`}>EMPLOYEE_ID</th>
-                        <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-slate-300' : 'border-slate-700'}`}>USER_NAME</th>
-                        <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-slate-300' : 'border-slate-700'}`}>DATE</th>
-                        <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-slate-300' : 'border-slate-700'}`}>PUNCH_TIME</th>
-                        <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-slate-300' : 'border-slate-700'}`}>ATN_TOKEN</th>
+                        <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-black' : 'border-slate-700'}`}>SERIAL</th>
+                        <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-black' : 'border-slate-700'}`}>EMPLOYEE_ID</th>
+                        <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-black' : 'border-slate-700'}`}>USER_NAME</th>
+                        <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-black' : 'border-slate-700'}`}>DATE</th>
+                        <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-black' : 'border-slate-700'}`}>PUNCH_TIME</th>
+                        <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-black' : 'border-slate-700'}`}>ATN_TOKEN</th>
                         <th className="py-2.5 px-3 font-bold">ENTRY_ID</th>
                       </tr>
                     </thead>
                     <tbody className={`divide-y border-t ${
-                      isLight ? 'border-slate-300 divide-slate-200' : 'border-slate-700/80 divide-slate-800'
+                      isLight ? 'border-black divide-black' : 'border-slate-700/80 divide-slate-800'
                     }`}>
                       {loading ? (
                         <tr>
-                          <td colSpan={7} className={`py-8 text-center border ${isLight ? 'border-slate-200 text-slate-500' : 'border-slate-800 text-slate-500'}`}>
+                          <td colSpan={7} className={`py-8 text-center border ${isLight ? 'border-black text-black font-bold' : 'border-slate-800 text-slate-500'}`}>
                             <div className="flex items-center justify-center gap-2">
-                              <RotateCw className="w-4 h-4 animate-spin text-emerald-500" />
+                              <RotateCw className="w-4 h-4 animate-spin text-black" />
                               <span>EXEC: fetching raw records...</span>
                             </div>
                           </td>
                         </tr>
                       ) : filteredRecords.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className={`py-8 text-center border ${isLight ? 'border-slate-200 text-slate-500' : 'border-slate-800 text-slate-500'}`}>
+                          <td colSpan={7} className={`py-8 text-center border ${isLight ? 'border-black text-black font-bold' : 'border-slate-800 text-slate-500'}`}>
                             [NO RECORDS FOUND IN ATTENDANCE_LOGS]
                           </td>
                         </tr>
@@ -697,48 +707,48 @@ export default function TerminalDashboard() {
                           <tr
                             key={item.entry_id}
                             className={`border-b transition-colors group ${
-                              isLight ? 'hover:bg-sky-50 border-slate-200' : 'hover:bg-sky-950/40 border-slate-800/80'
+                              isLight ? 'bg-white hover:bg-slate-100 border-black text-black' : 'hover:bg-sky-950/40 border-slate-800/80'
                             }`}
                           >
                             <td className={`py-2 px-3 border-r font-semibold ${
-                              isLight ? 'border-slate-200 text-amber-700' : 'border-slate-800/80 text-amber-400'
+                              isLight ? 'border-black text-black font-bold' : 'border-slate-800/80 text-amber-400'
                             }`}>
                               #{item.serial_no}
                             </td>
-                            <td className={`py-2 px-3 border-r ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}>
+                            <td className={`py-2 px-3 border-r ${isLight ? 'border-black' : 'border-slate-800/80'}`}>
                               <span className={`font-bold px-1.5 py-0.5 rounded border ${
                                 isLight
-                                  ? 'text-emerald-800 bg-emerald-100 border-emerald-300'
+                                  ? 'text-black bg-white border-black'
                                   : 'text-emerald-400 bg-emerald-950/80 border-emerald-800/80'
                               }`}>
                                 {item.employee_id}
                               </span>
                             </td>
-                            <td className={`py-2 px-3 border-r font-medium ${
-                              isLight ? 'border-slate-200 text-slate-900 group-hover:text-sky-700' : 'border-slate-800/80 text-white group-hover:text-sky-300'
+                            <td className={`py-2 px-3 border-r font-bold ${
+                              isLight ? 'border-black text-black' : 'border-slate-800/80 text-white group-hover:text-sky-300'
                             }`}>
                               {item.user_name}
                             </td>
                             <td className={`py-2 px-3 border-r font-medium ${
-                              isLight ? 'border-slate-200 text-slate-600' : 'border-slate-800/80 text-slate-300'
+                              isLight ? 'border-black text-black' : 'border-slate-800/80 text-slate-300'
                             }`}>
                               {item.attendance_date}
                             </td>
-                            <td className={`py-2 px-3 border-r ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}>
+                            <td className={`py-2 px-3 border-r ${isLight ? 'border-black' : 'border-slate-800/80'}`}>
                               <span className={`font-bold px-1.5 py-0.5 rounded border ${
                                 isLight
-                                  ? 'text-sky-800 bg-sky-100 border-sky-300'
+                                  ? 'text-black bg-white border-black'
                                   : 'text-sky-300 bg-sky-950/80 border-sky-800/80'
                               }`}>
                                 {item.attendance_time}
                               </span>
                             </td>
                             <td className={`py-2 px-3 border-r ${
-                              isLight ? 'border-slate-200 text-slate-500' : 'border-slate-800/80 text-slate-400'
+                              isLight ? 'border-black text-black' : 'border-slate-800/80 text-slate-400'
                             }`}>
                               {item.atn_token}
                             </td>
-                            <td className="py-2 px-3 text-slate-500 truncate max-w-[200px]">
+                            <td className={`py-2 px-3 truncate max-w-[200px] ${isLight ? 'text-black font-medium' : 'text-slate-500'}`}>
                               {item.entry_id}
                             </td>
                           </tr>
@@ -751,16 +761,20 @@ export default function TerminalDashboard() {
             </div>
 
             {/* Terminal Live Activity Log Drawer */}
-            <div className={`border-2 rounded p-3 space-y-2 shadow-md ${
-              isLight ? 'bg-slate-100 border-slate-300' : 'bg-[#060911] border-slate-700/90'
+            <div className={`border-2 rounded p-3 space-y-2 ${
+              isLight ? 'bg-white border-black text-black' : 'bg-[#060911] border-slate-700/90'
             }`}>
-              <div className="flex items-center justify-between text-xs border-b pb-1.5 border-slate-300">
-                <span className="flex items-center gap-1.5 text-emerald-600 font-bold">
+              <div className={`flex items-center justify-between text-xs border-b pb-1.5 ${
+                isLight ? 'border-black' : 'border-slate-800'
+              }`}>
+                <span className={`flex items-center gap-1.5 font-bold ${isLight ? 'text-black' : 'text-emerald-400'}`}>
                   <FileCode className="w-3.5 h-3.5" /> SYSTEM_LOG_OUTPUT (stdout)
                 </span>
                 <button
                   onClick={() => setLogs([])}
-                  className="text-[10px] text-slate-500 hover:text-red-500 transition-colors flex items-center gap-1"
+                  className={`text-[10px] transition-colors flex items-center gap-1 font-bold ${
+                    isLight ? 'text-black hover:text-red-600' : 'text-slate-500 hover:text-red-400'
+                  }`}
                 >
                   <Trash2 className="w-3 h-3" /> clear_stdout
                 </button>
@@ -768,21 +782,21 @@ export default function TerminalDashboard() {
 
               <div className="h-28 overflow-y-auto space-y-1 font-mono text-[11px] leading-relaxed scrollbar-thin scrollbar-thumb-slate-400">
                 {logs.length === 0 ? (
-                  <div className="text-slate-500 italic">No output logged yet. Waiting for system events...</div>
+                  <div className={`italic ${isLight ? 'text-slate-600' : 'text-slate-500'}`}>No output logged yet. Waiting for system events...</div>
                 ) : (
                   logs.map((log, idx) => (
                     <div
                       key={idx}
                       className={`truncate ${
                         log.includes('ERROR') || log.includes('FATAL')
-                          ? 'text-red-600 font-semibold'
+                          ? 'text-red-600 font-bold'
                           : log.includes('SUCCESS')
-                          ? 'text-emerald-600'
+                          ? isLight ? 'text-black font-bold' : 'text-emerald-400'
                           : log.includes('WARN')
-                          ? 'text-amber-600'
-                          : log.includes('REALTIME')
                           ? 'text-amber-600 font-bold'
-                          : isLight ? 'text-slate-700' : 'text-slate-400'
+                          : log.includes('REALTIME')
+                          ? 'text-black font-bold underline'
+                          : isLight ? 'text-black font-medium' : 'text-slate-400'
                       }`}
                     >
                       {log}
@@ -793,11 +807,11 @@ export default function TerminalDashboard() {
             </div>
 
             {/* Terminal Footer Navigation */}
-            <div className={`flex flex-col sm:flex-row items-center justify-between text-[11px] border-t-2 pt-3 gap-2 font-semibold ${
-              isLight ? 'border-slate-300 text-slate-600' : 'border-slate-700/80 text-slate-400'
+            <div className={`flex flex-col sm:flex-row items-center justify-between text-[11px] border-t-2 pt-3 gap-2 font-bold ${
+              isLight ? 'border-black text-black' : 'border-slate-700/80 text-slate-400'
             }`}>
               <div>
-                STATUS: <span className="text-emerald-600 font-bold">SUPABASE_CONNECTED</span> | DRIVER: <span className="text-sky-600 font-bold">ISAPI_DIGEST_V2</span>
+                STATUS: <span className={isLight ? 'text-black underline' : 'text-emerald-400'}>SUPABASE_CONNECTED</span> | DRIVER: <span className={isLight ? 'text-black underline' : 'text-sky-400'}>ISAPI_DIGEST_V2</span>
               </div>
               <div className="flex items-center gap-3">
                 <span>[ESC] Exit</span>
