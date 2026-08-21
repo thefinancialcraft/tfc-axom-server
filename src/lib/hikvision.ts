@@ -374,7 +374,7 @@ export async function getHikvisionDeviceInfo(): Promise<HikvisionDeviceInfo> {
   try {
     process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 1500);
+    const timeoutId = setTimeout(() => controller.abort(), 1200);
 
     const firstRes = await fetch(url, { method: 'GET', signal: controller.signal }).catch(() => null);
     clearTimeout(timeoutId);
@@ -395,12 +395,18 @@ export async function getHikvisionDeviceInfo(): Promise<HikvisionDeviceInfo> {
       const wwwAuth = firstRes.headers.get('www-authenticate') || '';
       const digestHeader = buildDigestHeader('GET', uri, wwwAuth, HIK_USER, HIK_PASS);
 
+      const controller2 = new AbortController();
+      const timeoutId2 = setTimeout(() => controller2.abort(), 1200);
+
       const secondRes = await fetch(url, {
         method: 'GET',
         headers: { Authorization: digestHeader },
-      });
+        signal: controller2.signal,
+      }).catch(() => null);
 
-      if (secondRes.ok) {
+      clearTimeout(timeoutId2);
+
+      if (secondRes && secondRes.ok) {
         const xmlText = await secondRes.text();
         const modelMatch = xmlText.match(/<model>([^<]+)<\/model>/i);
         const nameMatch = xmlText.match(/<deviceName>([^<]+)<\/deviceName>/i);

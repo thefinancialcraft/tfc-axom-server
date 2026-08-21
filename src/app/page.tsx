@@ -176,6 +176,20 @@ export default function TerminalDashboard() {
     return () => clearInterval(clockInterval);
   }, []);
 
+  // Status check timeout safety (Max 2.0s timeout fallback)
+  useEffect(() => {
+    const timeoutTimer = setTimeout(() => {
+      setIsCheckingStatus((prev) => {
+        if (prev) {
+          addLog(`WARN: Device status probe timed out (2000ms). Setting fallback OFFLINE status.`);
+        }
+        return false;
+      });
+    }, 2000);
+
+    return () => clearTimeout(timeoutTimer);
+  }, []);
+
   useEffect(() => {
     addLog(`INIT: Axom Biometric Daemon initialized.`);
     addLog(`NETWORK: Auto-detecting local LAN/Wi-Fi subnets...`);
@@ -258,12 +272,12 @@ export default function TerminalDashboard() {
             </div>
 
             <div className="flex items-center gap-3 text-[11px]">
-              {isCheckingStatus || !deviceInfo ? (
+              {isCheckingStatus ? (
                 <span className="hidden sm:inline-flex items-center gap-1.5 text-amber-400 font-bold bg-amber-950/80 px-2.5 py-0.5 rounded border border-amber-700/80 shadow-sm shadow-amber-500/20">
                   <RotateCw className="w-3 h-3 text-amber-400 animate-spin" />
                   FETCHING DEVICE STATUS...
                 </span>
-              ) : deviceInfo.isConnected ? (
+              ) : deviceInfo && deviceInfo.isConnected ? (
                 <span className="hidden sm:inline-flex items-center gap-1.5 text-emerald-400 font-bold bg-emerald-950/80 px-2.5 py-0.5 rounded border border-emerald-700/80 shadow-sm shadow-emerald-500/20">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
                   MACHINE CONNECTED [{deviceInfo.model || 'DS-K1T320EFWX'}]
