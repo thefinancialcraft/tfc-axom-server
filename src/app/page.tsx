@@ -346,7 +346,41 @@ export default function TerminalDashboard() {
       item.entry_id.toLowerCase().includes(search.toLowerCase())
   );
 
-  // Group records by Employee ID & Date -> First punch = Check In, Last punch = Check Out
+  // Helper to parse punch time into seconds of day for accurate chronological sorting
+  const getPunchSecondsOfDay = (item: RecordItem): number => {
+    // 1. Check entry_id format e.g. T20260821104023...
+    if (item.entry_id) {
+      const match = item.entry_id.match(/^T\d{8}(\d{2})(\d{2})(\d{2})/);
+      if (match) {
+        const hh = parseInt(match[1], 10);
+        const mm = parseInt(match[2], 10);
+        const ss = parseInt(match[3], 10);
+        return hh * 3600 + mm * 60 + ss;
+      }
+    }
+
+    // 2. Parse attendance_time string e.g. "10:40:23 AM", "06:35:47 PM", "18:35:47"
+    if (item.attendance_time) {
+      const timeStr = item.attendance_time.trim();
+      const isPM = /pm/i.test(timeStr);
+      const isAM = /am/i.test(timeStr);
+      const cleanTime = timeStr.replace(/(am|pm)/i, '').trim();
+      const parts = cleanTime.split(':').map((p) => parseInt(p, 10) || 0);
+
+      let h = parts[0] || 0;
+      const m = parts[1] || 0;
+      const s = parts[2] || 0;
+
+      if (isPM && h < 12) h += 12;
+      if (isAM && h === 12) h = 0;
+
+      return h * 3600 + m * 60 + s;
+    }
+
+    return item.serial_no || item.id || 0;
+  };
+
+  // Group records by Employee ID & Date -> First punch (earliest time) = Check In, Last punch (latest time) = Check Out
   const getGroupedAttendance = (): GroupedAttendance[] => {
     const map = new Map<string, RecordItem[]>();
 
@@ -361,7 +395,8 @@ export default function TerminalDashboard() {
     const grouped: GroupedAttendance[] = [];
 
     Array.from(map.values()).forEach((list) => {
-      const sorted = [...list].sort((a, b) => (a.serial_no || 0) - (b.serial_no || 0));
+      // Sort chronologically ascending (earliest punch first, latest punch last)
+      const sorted = [...list].sort((a, b) => getPunchSecondsOfDay(a) - getPunchSecondsOfDay(b));
 
       const first = sorted[0];
       const last = sorted[sorted.length - 1];
