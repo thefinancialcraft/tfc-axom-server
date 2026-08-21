@@ -63,15 +63,8 @@ export default function TerminalDashboard() {
   const [isAutoPoll, setIsAutoPoll] = useState<boolean>(true);
   const [viewMode, setViewMode] = useState<'SUMMARY' | 'RAW'>('SUMMARY');
 
-  const [deviceInfo, setDeviceInfo] = useState<DeviceInfoState>({
-    isConnected: true,
-    ip: '192.168.1.63',
-    model: 'DS-K1T320EFWX',
-    deviceName: 'Access Controller',
-    serialNumber: 'DS-K1T320EFWX20240701V030502ENFS1267085',
-    macAddress: 'a4:d5:c2:1c:4d:83',
-    firmwareVersion: 'V3.5.2',
-  });
+  const [deviceInfo, setDeviceInfo] = useState<DeviceInfoState | null>(null);
+  const [isCheckingStatus, setIsCheckingStatus] = useState<boolean>(true);
 
   const prevCountRef = useRef<number>(0);
 
@@ -112,6 +105,7 @@ export default function TerminalDashboard() {
       addLog(`ERROR: Failed to fetch attendance data - ${err.message}`);
     } finally {
       setLoading(false);
+      setIsCheckingStatus(false);
     }
   }, []);
 
@@ -264,7 +258,12 @@ export default function TerminalDashboard() {
             </div>
 
             <div className="flex items-center gap-3 text-[11px]">
-              {deviceInfo.isConnected ? (
+              {isCheckingStatus || !deviceInfo ? (
+                <span className="hidden sm:inline-flex items-center gap-1.5 text-amber-400 font-bold bg-amber-950/80 px-2.5 py-0.5 rounded border border-amber-700/80 shadow-sm shadow-amber-500/20">
+                  <RotateCw className="w-3 h-3 text-amber-400 animate-spin" />
+                  FETCHING DEVICE STATUS...
+                </span>
+              ) : deviceInfo.isConnected ? (
                 <span className="hidden sm:inline-flex items-center gap-1.5 text-emerald-400 font-bold bg-emerald-950/80 px-2.5 py-0.5 rounded border border-emerald-700/80 shadow-sm shadow-emerald-500/20">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
                   MACHINE CONNECTED [{deviceInfo.model || 'DS-K1T320EFWX'}]
@@ -293,15 +292,15 @@ export default function TerminalDashboard() {
             <div className="flex flex-wrap items-center justify-between gap-2 border-y-2 border-slate-700/80 py-2.5 text-xs bg-[#0b101c] px-3 rounded">
               <div className="flex flex-wrap items-center gap-4 text-slate-300">
                 <span className="text-emerald-400 font-bold flex items-center gap-1">
-                  <ShieldCheck className="w-4 h-4 text-emerald-400" /> MODEL: {deviceInfo.model || 'DS-K1T320EFWX'}
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" /> MODEL: {deviceInfo?.model || 'DS-K1T320EFWX'}
                 </span>
                 <span className="text-slate-600">::</span>
                 <span className="text-sky-300 flex items-center gap-1 font-bold">
-                  <Wifi className="w-3.5 h-3.5 text-sky-400 animate-pulse" /> IP: {deviceIp} (MAC: {deviceInfo.macAddress})
+                  <Wifi className="w-3.5 h-3.5 text-sky-400 animate-pulse" /> IP: {deviceIp} (MAC: {deviceInfo?.macAddress || 'a4:d5:c2:1c:4d:83'})
                 </span>
                 <span className="text-slate-600">::</span>
                 <span className="text-amber-400 flex items-center gap-1 font-bold">
-                  <Cpu className="w-3.5 h-3.5 text-amber-400" /> FW: {deviceInfo.firmwareVersion}
+                  <Cpu className="w-3.5 h-3.5 text-amber-400" /> FW: {deviceInfo?.firmwareVersion || 'V3.5.2'}
                 </span>
               </div>
               
