@@ -92,12 +92,27 @@ function parseHikTime(timeStr) {
 async function fetchHikvisionEvents() {
   const uri = '/ISAPI/AccessControl/AcsEvent?format=json';
   const url = `https://${HIK_IP}${uri}`;
+  const now = new Date();
+  const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+  const startYYYY = threeDaysAgo.getFullYear();
+  const startMM = String(threeDaysAgo.getMonth() + 1).padStart(2, '0');
+  const startDD = String(threeDaysAgo.getDate()).padStart(2, '0');
+  const startTime = `${startYYYY}-${startMM}-${startDD}T00:00:00+05:30`;
+
+  const endYYYY = now.getFullYear();
+  const endMM = String(now.getMonth() + 1).padStart(2, '0');
+  const endDD = String(now.getDate()).padStart(2, '0');
+  const endTime = `${endYYYY}-${endMM}-${endDD}T23:59:59+05:30`;
+
   const postData = JSON.stringify({
     AcsEventCond: {
       searchID: '1',
       searchResultPosition: 0,
       maxResults: 500,
       major: 5,
+      minor: 0,
+      startTime: startTime,
+      endTime: endTime,
       timeReverseOrder: true,
     },
   });
@@ -141,11 +156,19 @@ async function initRelay() {
   console.log(`☁️ Supabase Cloud DB Destination: ${SUPABASE_URL}`);
   console.log(`⏱️ Polling Frequency: Every ${POLL_INTERVAL_MS}ms\n`);
 
-  // Pre-fill processed entries from Supabase
+  // Pre-fill processed entries from Supabase or reset if DB was truncated
   try {
-    const { data: rows } = await supabase.from('attendance_log').select('entry_id').limit(1000);
+    const { data: rows } = await supabase
+      .from('attendance_log')
+      .select('entry_id')
+      .order('id', { ascending: false })
+      .limit(2000);
     if (rows) {
-      rows.forEach((r) => processedEntryIds.add(r.entry_id));
+      if (rows.length === 0 && processedEntryIds.size > 0) {
+        processedEntryIds.clear();
+      } else {
+        rows.forEach((r) => processedEntryIds.add(r.entry_id));
+      }
       console.log(`📦 Pre-loaded ${processedEntryIds.size} existing entry ID(s) from Supabase Cloud DB.`);
     }
   } catch (err) {
@@ -165,18 +188,6 @@ async function initRelay() {
       if (data?.AcsEvent?.InfoList && Array.isArray(data.AcsEvent.InfoList)) {
         for (const event of data.AcsEvent.InfoList) {
           if (event.major !== 5) continue;
-
-          // STRICT FINGERPRINT FILTER
-          const isFingerprint =
-            event.minor === 38 ||
-            event.minor === 7 ||
-            event.minor === 113 ||
-            event.minor === 164 ||
-            (event.currentVerifyMode && String(event.currentVerifyMode).toLowerCase().includes('finger')) ||
-            (event.verifyMode && String(event.verifyMode).toLowerCase().includes('finger')) ||
-            event.currentVerifyMode === 2;
-
-          if (!isFingerprint) continue;
 
           const serial = parseInt(event.serialNo || '0', 10);
           const employeeNo = (
@@ -222,11 +233,13 @@ async function initRelay() {
         const time = new Date().toLocaleTimeString();
         console.log(`[${time}] ⚡ NEW FINGERPRINT PUNCH DETECTED FROM LOCAL MACHINE! Inserting ${newRecords.length} record(s) to Supabase Cloud DB...`);
 
-        const { error } = await supabase.from('attendance_log').insert(newRecords);
+        const { error } = await supabase
+          .from('attendance_log')
+          .upsert(newRecords, { onConflict: 'entry_id' });
         if (error) {
-          console.error(`[${time}] ❌ Supabase Insert Error:`, error.message);
+          console.error(`[${time}] ❌ Supabase Sync Error:`, error.message);
         } else {
-          console.log(`[${time}] ✅ Successfully pushed ${newRecords.length} fingerprint record(s) to Supabase Cloud!`);
+          console.log(`[${time}] ✅ Successfully upserted ${newRecords.length} record(s) on entry_id to Supabase Cloud!`);
         }
 
         if (GOOGLE_SCRIPT_URL) {

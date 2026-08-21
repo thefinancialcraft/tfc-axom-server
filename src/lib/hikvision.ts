@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import os from 'os';
 import dgram from 'dgram';
+import https from 'https';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 let cachedHikIp: string | null = null;
@@ -372,12 +373,7 @@ export async function getHikvisionDeviceInfo(): Promise<HikvisionDeviceInfo> {
   const url = `https://${ip}${uri}`;
 
   try {
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000);
-
-    const firstRes = await fetch(url, { method: 'GET', signal: controller.signal }).catch(() => null);
-    clearTimeout(timeoutId);
+    const firstRes = await fetchHikvisionHttps(url, { method: 'GET' }).catch(() => null);
 
     if (!firstRes) {
       return {
@@ -392,19 +388,13 @@ export async function getHikvisionDeviceInfo(): Promise<HikvisionDeviceInfo> {
     }
 
     if (firstRes.status === 401) {
-      const wwwAuth = firstRes.headers.get('www-authenticate') || '';
+      const wwwAuth = firstRes.headers['www-authenticate'] || '';
       const digestHeader = buildDigestHeader('GET', uri, wwwAuth, HIK_USER, HIK_PASS);
 
-      const controller2 = new AbortController();
-      const timeoutId2 = setTimeout(() => controller2.abort(), 3000);
-
-      const secondRes = await fetch(url, {
+      const secondRes = await fetchHikvisionHttps(url, {
         method: 'GET',
         headers: { Authorization: digestHeader },
-        signal: controller2.signal,
       }).catch(() => null);
-
-      clearTimeout(timeoutId2);
 
       if (secondRes && secondRes.ok) {
         const xmlText = await secondRes.text();
@@ -477,6 +467,46 @@ function buildDigestHeader(
   }
 }
 
+function fetchHikvisionHttps(
+  urlStr: string,
+  options: { method?: string; headers?: Record<string, string>; body?: string } = {}
+): Promise<{ status: number; headers: any; ok: boolean; json: () => Promise<any>; text: () => Promise<string> }> {
+  return new Promise((resolve, reject) => {
+    const parsedUrl = new URL(urlStr);
+    const postData = options.body || '';
+
+    const reqOptions: https.RequestOptions = {
+      hostname: parsedUrl.hostname,
+      port: parsedUrl.port ? parseInt(parsedUrl.port, 10) : 443,
+      path: parsedUrl.pathname + parsedUrl.search,
+      method: options.method || 'GET',
+      headers: {
+        ...(options.headers || {}),
+        'Content-Length': String(Buffer.byteLength(postData)),
+      },
+      rejectUnauthorized: false,
+    };
+
+    const req = https.request(reqOptions, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        resolve({
+          status: res.statusCode || 500,
+          headers: res.headers,
+          ok: !!(res.statusCode && res.statusCode >= 200 && res.statusCode < 300),
+          text: () => Promise.resolve(data),
+          json: () => Promise.resolve(JSON.parse(data || '{}')),
+        });
+      });
+    });
+
+    req.on('error', (err) => reject(err));
+    if (postData) req.write(postData);
+    req.end();
+  });
+}
+
 export async function fetchHikvisionEvents(): Promise<{ data: any; deviceIp: string }> {
   const discovery = await discoverHikvisionDevice(false);
   const hikIp = discovery.ip;
@@ -484,30 +514,43 @@ export async function fetchHikvisionEvents(): Promise<{ data: any; deviceIp: str
   const uri = '/ISAPI/AccessControl/AcsEvent?format=json';
   const url = `https://${hikIp}${uri}`;
 
-  // Fetch events for Access Control (Major 5)
+  const now = new Date();
+  const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+  const startYYYY = threeDaysAgo.getFullYear();
+  const startMM = String(threeDaysAgo.getMonth() + 1).padStart(2, '0');
+  const startDD = String(threeDaysAgo.getDate()).padStart(2, '0');
+  const startTime = `${startYYYY}-${startMM}-${startDD}T00:00:00+05:30`;
+
+  const endYYYY = now.getFullYear();
+  const endMM = String(now.getMonth() + 1).padStart(2, '0');
+  const endDD = String(now.getDate()).padStart(2, '0');
+  const endTime = `${endYYYY}-${endMM}-${endDD}T23:59:59+05:30`;
+
+  // Fetch events for Access Control (Major 5) for the last 3 days
   const postData = JSON.stringify({
     AcsEventCond: {
       searchID: '1',
       searchResultPosition: 0,
       maxResults: 500,
       major: 5,
+      minor: 0,
+      startTime: startTime,
+      endTime: endTime,
       timeReverseOrder: true,
     },
   });
 
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-
-  const firstRes = await fetch(url, {
+  const firstRes = await fetchHikvisionHttps(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: postData,
   });
 
   if (firstRes.status === 401) {
-    const wwwAuth = firstRes.headers.get('www-authenticate') || '';
+    const wwwAuth = firstRes.headers['www-authenticate'] || '';
     const digestHeader = buildDigestHeader('POST', uri, wwwAuth, HIK_USER, HIK_PASS);
 
-    const secondRes = await fetch(url, {
+    const secondRes = await fetchHikvisionHttps(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -536,15 +579,20 @@ export async function syncHikvisionAttendance() {
   try {
     const supabase = getSupabaseClient();
 
-    // Populate in-memory set from Supabase if empty
-    if (supabase && processedEntryIds.size === 0) {
+    // Populate in-memory set from Supabase or reset if DB was truncated
+    if (supabase) {
       try {
         const { data: supaRows } = await supabase
           .from('attendance_log')
           .select('entry_id')
-          .limit(1000);
+          .order('id', { ascending: false })
+          .limit(2000);
         if (supaRows) {
-          supaRows.forEach((r) => processedEntryIds.add(r.entry_id));
+          if (supaRows.length === 0 && processedEntryIds.size > 0) {
+            processedEntryIds.clear();
+          } else {
+            supaRows.forEach((r) => processedEntryIds.add(r.entry_id));
+          }
         }
       } catch {}
     }
@@ -575,20 +623,6 @@ export async function syncHikvisionAttendance() {
         }
 
         if (event.major !== 5) continue;
-
-        // STRICT FINGERPRINT VERIFICATION FILTER
-        // Minor codes for Fingerprint: 38 (Card/Fingerprint Pass), 7 (Fingerprint Verification Pass), 113, 164
-        // Or event verifyMode / currentVerifyMode indicates fingerprint
-        const isFingerprint =
-          event.minor === 38 ||
-          event.minor === 7 ||
-          event.minor === 113 ||
-          event.minor === 164 ||
-          (event.currentVerifyMode && String(event.currentVerifyMode).toLowerCase().includes('finger')) ||
-          (event.verifyMode && String(event.verifyMode).toLowerCase().includes('finger')) ||
-          event.currentVerifyMode === 2;
-
-        if (!isFingerprint) continue;
 
         const employeeNo = (
           event.employeeNoString ||
@@ -663,11 +697,13 @@ export async function syncHikvisionAttendance() {
             attendance_time: r.attendance_time,
           }));
 
-          const { error: sErr } = await supabase.from('attendance_log').insert(supaPayload);
+          const { error: sErr } = await supabase
+            .from('attendance_log')
+            .upsert(supaPayload, { onConflict: 'entry_id' });
           if (sErr) {
-            console.error('Supabase Cloud insert error:', sErr.message);
+            console.error('Supabase Cloud sync error:', sErr.message);
           } else {
-            console.log(`✅ Supabase Cloud updated with ${newRecords.length} new fingerprint punch record(s)!`);
+            console.log(`✅ Supabase Cloud synced/updated ${newRecords.length} record(s) on entry_id!`);
           }
         } catch (sErr: any) {
           console.error('Supabase insert exception:', sErr.message);

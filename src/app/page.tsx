@@ -54,7 +54,14 @@ interface DeviceInfoState {
 export default function TerminalDashboard() {
   const [allRecords, setAllRecords] = useState<RecordItem[]>([]);
   const [todayRecordsList, setTodayRecordsList] = useState<RecordItem[]>([]);
-  const [dateFilter, setDateFilter] = useState<'ALL' | 'TODAY'>('ALL');
+  const [dateFilter, setDateFilter] = useState<'TODAY' | 'ALL' | 'CUSTOM'>('TODAY');
+  const [customDate, setCustomDate] = useState<string>(() => {
+    const now = new Date();
+    const YYYY = now.getFullYear();
+    const MM = String(now.getMonth() + 1).padStart(2, '0');
+    const DD = String(now.getDate()).padStart(2, '0');
+    return `${YYYY}-${MM}-${DD}`;
+  });
   
   const [total, setTotal] = useState<number>(0);
   const [todayDate, setTodayDate] = useState<string>('');
@@ -114,8 +121,9 @@ export default function TerminalDashboard() {
 
   const fetchAttendanceData = useCallback(async () => {
     try {
-      addLog(`FETCH: Requesting /api/attendance sync & records from Supabase Cloud...`);
-      const res = await fetch('/api/attendance');
+      const dateParam = dateFilter === 'TODAY' ? 'TODAY' : dateFilter === 'CUSTOM' ? customDate : 'ALL';
+      addLog(`FETCH: Requesting /api/attendance?date=${dateParam} from Supabase Cloud...`);
+      const res = await fetch(`/api/attendance?date=${dateParam}`);
       if (res.ok) {
         const data = await res.json();
         if (data.success) {
@@ -152,7 +160,7 @@ export default function TerminalDashboard() {
           setTotal(newTotal);
           setTodayDate(data.todayDate || new Date().toLocaleDateString('en-GB'));
           
-          addLog(`SYNC_OK: Fetched ${newTotal} total records (${fetchedToday.length} for today).`);
+          addLog(`SYNC_OK: Fetched ${newTotal} record(s) matching filter [${dateParam}].`);
         } else {
           addLog(`WARN: API returned success=false - ${data.error || 'Unknown error'}`);
         }
@@ -166,7 +174,7 @@ export default function TerminalDashboard() {
       setLoading(false);
       setIsCheckingStatus(false);
     }
-  }, [addLog, checkBrowserDirectConnection, deviceIp]);
+  }, [addLog, checkBrowserDirectConnection, deviceIp, dateFilter, customDate]);
 
   const triggerManualSync = async () => {
     setIsSyncing(true);
@@ -228,9 +236,10 @@ export default function TerminalDashboard() {
     addLog(`UI_LAYOUT: Switched table view mode to [${mode}]`);
   };
 
-  const handleDateFilterChange = (filter: 'ALL' | 'TODAY') => {
+  const handleDateFilterChange = (filter: 'TODAY' | 'ALL' | 'CUSTOM', dateVal?: string) => {
     setDateFilter(filter);
-    addLog(`DATE_FILTER: Showing [${filter === 'TODAY' ? "TODAY'S PUNCHES" : 'ALL HISTORICAL RECORDS'}]`);
+    if (dateVal) setCustomDate(dateVal);
+    addLog(`DATE_FILTER: Switched filter to [${filter}${dateVal ? `: ${dateVal}` : ''}]`);
   };
 
   const handleThemeToggle = () => {
@@ -306,9 +315,27 @@ export default function TerminalDashboard() {
     };
   }, [isCheckingStatus, deviceInfo, isAutoPoll, fetchAttendanceData, addLog]);
 
+  const isRecordMatchingDate = (recordDateStr: string, targetIso: string) => {
+    if (!recordDateStr) return false;
+    const clean = recordDateStr.trim();
+    const parts = targetIso.split('-');
+    if (parts.length !== 3) return clean === targetIso;
+    const [y, m, d] = parts;
+    const shortY = y.slice(-2);
+
+    const matchShort = `${d}/${m}/${shortY}`;
+    const matchFull = `${d}/${m}/${y}`;
+
+    return clean === targetIso || clean === matchShort || clean === matchFull;
+  };
+
+  const todayIso = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+
   // Active records depending on dateFilter selection
-  const activeSourceRecords = dateFilter === 'TODAY' && todayRecordsList.length > 0
-    ? todayRecordsList
+  const activeSourceRecords = dateFilter === 'TODAY'
+    ? allRecords.filter((r) => isRecordMatchingDate(r.attendance_date, todayIso))
+    : dateFilter === 'CUSTOM' && customDate
+    ? allRecords.filter((r) => isRecordMatchingDate(r.attendance_date, customDate))
     : allRecords;
 
   const filteredRecords = activeSourceRecords.filter(
@@ -646,23 +673,7 @@ export default function TerminalDashboard() {
 
                 <span className="text-slate-500 hidden sm:inline">|</span>
 
-                {/* Date Filter Buttons */}
-                <button
-                  onClick={() => handleDateFilterChange('ALL')}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-bold transition-all ${
-                    dateFilter === 'ALL'
-                      ? isLight
-                        ? 'bg-amber-500 text-black border-2 border-black'
-                        : 'bg-amber-500 text-black border border-amber-400'
-                      : isLight
-                      ? 'bg-white text-slate-900 border-2 border-black hover:bg-slate-100'
-                      : 'bg-slate-900 text-slate-400 border-2 border-slate-700 hover:text-slate-200'
-                  }`}
-                >
-                  <Calendar className="w-3.5 h-3.5" />
-                  <span>[ALL RECORDS ({allRecords.length})]</span>
-                </button>
-
+                {/* Date Filter Buttons & Interactive Custom Date Picker */}
                 <button
                   onClick={() => handleDateFilterChange('TODAY')}
                   className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-bold transition-all ${
@@ -676,7 +687,49 @@ export default function TerminalDashboard() {
                   }`}
                 >
                   <Clock className="w-3.5 h-3.5" />
-                  <span>[TODAY ({todayRecordsList.length})]</span>
+                  <span>[TODAY ({allRecords.filter((r) => isRecordMatchingDate(r.attendance_date, todayIso)).length})]</span>
+                </button>
+
+                <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-bold transition-all border-2 ${
+                  dateFilter === 'CUSTOM'
+                    ? isLight
+                      ? 'bg-sky-600 text-white border-black'
+                      : 'bg-sky-500 text-black border-sky-400'
+                    : isLight
+                    ? 'bg-white text-slate-900 border-black hover:bg-slate-100'
+                    : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-slate-200'
+                }`}>
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span className="text-[11px]">DATE:</span>
+                  <input
+                    type="date"
+                    value={customDate}
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        setCustomDate(e.target.value);
+                        handleDateFilterChange('CUSTOM', e.target.value);
+                      }
+                    }}
+                    className={`bg-transparent text-xs font-mono font-bold focus:outline-none cursor-pointer ${
+                      dateFilter === 'CUSTOM' && !isLight ? 'text-black' : isLight ? 'text-slate-900' : 'text-sky-300'
+                    }`}
+                  />
+                </div>
+
+                <button
+                  onClick={() => handleDateFilterChange('ALL')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-bold transition-all ${
+                    dateFilter === 'ALL'
+                      ? isLight
+                        ? 'bg-amber-500 text-black border-2 border-black'
+                        : 'bg-amber-500 text-black border border-amber-400'
+                      : isLight
+                      ? 'bg-white text-slate-900 border-2 border-black hover:bg-slate-100'
+                      : 'bg-slate-900 text-slate-400 border-2 border-slate-700 hover:text-slate-200'
+                  }`}
+                >
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span>[ALL ({allRecords.length})]</span>
                 </button>
               </div>
 
