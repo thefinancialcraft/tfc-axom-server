@@ -292,6 +292,7 @@ export default function TerminalDashboard() {
               <span className="text-slate-400">TTY1</span>
             </div>
           </div>
+          
 
           {/* ASCII Banner & System Specs */}
           <div className="p-4 sm:p-6 space-y-5">
