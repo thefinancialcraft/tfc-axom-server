@@ -54,7 +54,7 @@ export async function GET() {
 
     let records: any[] = [];
 
-    // 2. Query Supabase Cloud DB for records
+    // 2. Query Supabase Cloud DB for all attendance records
     if (supabase) {
       try {
         const { data: supaData, error: supaErr } = await supabase
@@ -91,20 +91,19 @@ export async function GET() {
         r.attendance_date === todayStrIso
     );
 
-    // Prefer today's records if present, otherwise return all historical records
-    const finalRecords = todayRecords.length > 0 ? todayRecords : records;
-
     return NextResponse.json({
       success: true,
       todayDate: todayStrFull,
-      total: finalRecords.length,
-      records: finalRecords || [],
+      total: records.length,
+      todayTotal: todayRecords.length,
+      records,
+      todayRecords,
       deviceInfo,
     });
   } catch (error: any) {
     console.error('API Attendance fetch error:', error);
     return NextResponse.json(
-      { success: false, error: error.message, total: 0, records: [] },
+      { success: false, error: error.message, total: 0, todayTotal: 0, records: [], todayRecords: [] },
       { status: 500 }
     );
   }

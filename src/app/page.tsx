@@ -18,7 +18,8 @@ import {
   Trash2,
   Cpu,
   Sun,
-  Moon
+  Moon,
+  Calendar
 } from 'lucide-react';
 
 interface RecordItem {
@@ -51,7 +52,10 @@ interface DeviceInfoState {
 }
 
 export default function TerminalDashboard() {
-  const [records, setRecords] = useState<RecordItem[]>([]);
+  const [allRecords, setAllRecords] = useState<RecordItem[]>([]);
+  const [todayRecordsList, setTodayRecordsList] = useState<RecordItem[]>([]);
+  const [dateFilter, setDateFilter] = useState<'ALL' | 'TODAY'>('ALL');
+  
   const [total, setTotal] = useState<number>(0);
   const [todayDate, setTodayDate] = useState<string>('');
   const [search, setSearch] = useState<string>('');
@@ -115,12 +119,13 @@ export default function TerminalDashboard() {
       if (res.ok) {
         const data = await res.json();
         if (data.success) {
-          const newRecordsList = data.records || [];
-          const newTotal = data.total || 0;
+          const fetchedAll = data.records || [];
+          const fetchedToday = data.todayRecords || [];
+          const newTotal = fetchedAll.length || 0;
 
           if (prevCountRef.current > 0 && newTotal > prevCountRef.current) {
             const diff = newTotal - prevCountRef.current;
-            const topRecord = newRecordsList[0];
+            const topRecord = fetchedAll[0];
             const name = topRecord ? topRecord.user_name : 'Employee';
             const time = topRecord ? topRecord.attendance_time : '';
             addLog(`⚡ REALTIME AUTO PUNCH DETECTED: +${diff} New Punch(es)! [${name}] at ${time}`);
@@ -142,10 +147,12 @@ export default function TerminalDashboard() {
             }
           }
 
-          setRecords(newRecordsList);
+          setAllRecords(fetchedAll);
+          setTodayRecordsList(fetchedToday);
           setTotal(newTotal);
           setTodayDate(data.todayDate || new Date().toLocaleDateString('en-GB'));
-          addLog(`SYNC_OK: DB returned ${newTotal} active record(s) for ${data.todayDate || 'today'}.`);
+          
+          addLog(`SYNC_OK: Fetched ${newTotal} total records (${fetchedToday.length} for today).`);
         } else {
           addLog(`WARN: API returned success=false - ${data.error || 'Unknown error'}`);
         }
@@ -221,6 +228,11 @@ export default function TerminalDashboard() {
     addLog(`UI_LAYOUT: Switched table view mode to [${mode}]`);
   };
 
+  const handleDateFilterChange = (filter: 'ALL' | 'TODAY') => {
+    setDateFilter(filter);
+    addLog(`DATE_FILTER: Showing [${filter === 'TODAY' ? "TODAY'S PUNCHES" : 'ALL HISTORICAL RECORDS'}]`);
+  };
+
   const handleThemeToggle = () => {
     const nextTheme = theme === 'LIGHT' ? 'DARK' : 'LIGHT';
     setTheme(nextTheme);
@@ -294,7 +306,12 @@ export default function TerminalDashboard() {
     };
   }, [isCheckingStatus, deviceInfo, isAutoPoll, fetchAttendanceData, addLog]);
 
-  const filteredRecords = records.filter(
+  // Active records depending on dateFilter selection
+  const activeSourceRecords = dateFilter === 'TODAY' && todayRecordsList.length > 0
+    ? todayRecordsList
+    : allRecords;
+
+  const filteredRecords = activeSourceRecords.filter(
     (item) =>
       item.user_name.toLowerCase().includes(search.toLowerCase()) ||
       item.employee_id.toLowerCase().includes(search.toLowerCase()) ||
@@ -489,8 +506,10 @@ export default function TerminalDashboard() {
                 isLight ? 'bg-white border-black text-slate-900' : 'bg-[#0c1220] border-slate-700/90'
               }`}>
                 <div className={`text-[10px] uppercase tracking-wider font-bold ${isLight ? 'text-slate-700' : 'text-slate-400'}`}>TOTAL PUNCHES</div>
-                <div className={`text-2xl font-bold mt-0.5 ${isLight ? 'text-emerald-600' : 'text-emerald-400 text-glow-green'}`}>{total}</div>
-                <div className={`text-[10px] font-medium ${isLight ? 'text-slate-500' : 'text-slate-500'}`}>Records today</div>
+                <div className={`text-2xl font-bold mt-0.5 ${isLight ? 'text-emerald-600' : 'text-emerald-400 text-glow-green'}`}>{filteredRecords.length}</div>
+                <div className={`text-[10px] font-medium ${isLight ? 'text-slate-500' : 'text-slate-500'}`}>
+                  {dateFilter === 'TODAY' ? 'Punches today' : 'All historical punches'}
+                </div>
               </div>
 
               <div className={`p-3 border-2 rounded shadow-none ${
@@ -498,7 +517,7 @@ export default function TerminalDashboard() {
               }`}>
                 <div className={`text-[10px] uppercase tracking-wider font-bold ${isLight ? 'text-slate-700' : 'text-slate-400'}`}>EMPLOYEES PRESENT</div>
                 <div className={`text-2xl font-bold mt-0.5 ${isLight ? 'text-sky-600' : 'text-sky-400 text-glow-cyan'}`}>{groupedList.length}</div>
-                <div className={`text-[10px] font-medium ${isLight ? 'text-slate-500' : 'text-slate-500'}`}>Unique Users Today</div>
+                <div className={`text-[10px] font-medium ${isLight ? 'text-slate-500' : 'text-slate-500'}`}>Unique Users</div>
               </div>
 
               <div className={`p-3 border-2 rounded shadow-none ${
@@ -514,7 +533,7 @@ export default function TerminalDashboard() {
               }`}>
                 <div className={`text-[10px] uppercase tracking-wider font-bold ${isLight ? 'text-slate-700' : 'text-slate-400'}`}>DB LAST UPDATE TIME</div>
                 <div className={`text-base font-bold mt-1 truncate ${isLight ? 'text-emerald-600' : 'text-emerald-400 text-glow-green'}`}>
-                  {records.length > 0 ? records[0].attendance_time : '--'}
+                  {filteredRecords.length > 0 ? filteredRecords[0].attendance_time : '--'}
                 </div>
                 <div className={`text-[10px] font-medium ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Supabase Cloud DB</div>
               </div>
@@ -587,11 +606,12 @@ export default function TerminalDashboard() {
               </div>
             </div>
 
-            {/* View Mode Toggle Header */}
-            <div className={`flex items-center justify-between px-4 py-2 border-2 rounded-t border-b-0 text-xs ${
+            {/* View Mode & Date Filter Toggle Header */}
+            <div className={`flex flex-col md:flex-row items-stretch md:items-center justify-between px-4 py-2 border-2 rounded-t border-b-0 text-xs gap-2 ${
               isLight ? 'bg-white border-black text-slate-900 font-bold' : 'bg-[#0b101c] border-slate-700/90 text-slate-300'
             }`}>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {/* View Mode Buttons */}
                 <button
                   onClick={() => handleViewModeChange('SUMMARY')}
                   className={`flex items-center gap-1.5 px-3 py-1 rounded font-bold transition-all ${
@@ -605,7 +625,7 @@ export default function TerminalDashboard() {
                   }`}
                 >
                   <Users className="w-3.5 h-3.5" />
-                  <span>[SUMMARY VIEW: CHECK-IN / CHECK-OUT]</span>
+                  <span>[SUMMARY VIEW]</span>
                 </button>
 
                 <button
@@ -621,13 +641,48 @@ export default function TerminalDashboard() {
                   }`}
                 >
                   <ListFilter className="w-3.5 h-3.5" />
-                  <span>[RAW LOGS: ALL PUNCHES]</span>
+                  <span>[RAW LOGS]</span>
+                </button>
+
+                <span className="text-slate-500 hidden sm:inline">|</span>
+
+                {/* Date Filter Buttons */}
+                <button
+                  onClick={() => handleDateFilterChange('ALL')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-bold transition-all ${
+                    dateFilter === 'ALL'
+                      ? isLight
+                        ? 'bg-amber-500 text-black border-2 border-black'
+                        : 'bg-amber-500 text-black border border-amber-400'
+                      : isLight
+                      ? 'bg-white text-slate-900 border-2 border-black hover:bg-slate-100'
+                      : 'bg-slate-900 text-slate-400 border-2 border-slate-700 hover:text-slate-200'
+                  }`}
+                >
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span>[ALL RECORDS ({allRecords.length})]</span>
+                </button>
+
+                <button
+                  onClick={() => handleDateFilterChange('TODAY')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-bold transition-all ${
+                    dateFilter === 'TODAY'
+                      ? isLight
+                        ? 'bg-emerald-600 text-white border-2 border-black'
+                        : 'bg-emerald-500 text-black border border-emerald-400'
+                      : isLight
+                      ? 'bg-white text-slate-900 border-2 border-black hover:bg-slate-100'
+                      : 'bg-slate-900 text-slate-400 border-2 border-slate-700 hover:text-slate-200'
+                  }`}
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>[TODAY ({todayRecordsList.length})]</span>
                 </button>
               </div>
 
               <div className="text-[11px] font-bold hidden md:block">
                 {viewMode === 'SUMMARY'
-                  ? `EMPLOYEES: ${groupedList.length} UNIQUE RECORD(S)`
+                  ? `EMPLOYEES: ${groupedList.length} UNIQUE USER(S)`
                   : `RAW PUNCHES: ${filteredRecords.length} ENTRIES`}
               </div>
             </div>
@@ -677,7 +732,7 @@ export default function TerminalDashboard() {
                       ) : groupedList.length === 0 ? (
                         <tr>
                           <td colSpan={7} className={`py-8 text-center border ${isLight ? 'border-black text-slate-600 font-bold' : 'border-slate-800 text-slate-500'}`}>
-                            [NO ATTENDANCE RECORDS FOUND FOR TODAY]
+                            [NO ATTENDANCE RECORDS FOUND FOR {dateFilter === 'TODAY' ? "TODAY" : "SELECTED FILTER"}]
                           </td>
                         </tr>
                       ) : (
