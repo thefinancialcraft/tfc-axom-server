@@ -3,9 +3,7 @@ import {
   getSupabaseClient,
   formatTo12Hour,
   syncHikvisionAttendance,
-  getHikvisionDeviceInfo,
-  fetchHikvisionEvents,
-  parseHikvisionEventTime
+  getHikvisionDeviceInfo
 } from '@/lib/hikvision';
 
 export const dynamic = 'force-dynamic';
@@ -16,7 +14,7 @@ let lastAutoSyncTime = 0;
 export async function GET() {
   try {
     const nowTs = Date.now();
-    // Non-blocking automatic machine sync trigger every 2.5 seconds
+    // 1. Background Parallel Sync: Machine -> Supabase Cloud DB & Google Sheets (every 2.5s)
     if (nowTs - lastAutoSyncTime > 2500) {
       lastAutoSyncTime = nowTs;
       syncHikvisionAttendance().catch((err) => {
@@ -48,77 +46,34 @@ export async function GET() {
 
     let records: any[] = [];
 
-    // 1. Fetch live events directly from Hikvision Machine
-    try {
-      const hikRes = await fetchHikvisionEvents();
-      if (hikRes?.data?.AcsEvent?.InfoList && Array.isArray(hikRes.data.AcsEvent.InfoList)) {
-        for (const event of hikRes.data.AcsEvent.InfoList) {
-          if (event.major !== 5 || event.minor !== 38) continue;
-          const employeeNo = (event.employeeNoString || '').trim();
-          const userName = (event.name || '').trim();
-
-          if (!employeeNo || employeeNo === '--' || employeeNo.toLowerCase() === 'invalid' || !userName) {
-            continue;
-          }
-
-          const numericCode = employeeNo.replace(/[^0-9]/g, '');
-          if (!numericCode) continue;
-
-          const serial = parseInt(event.serialNo || '0', 10);
-          const parsedTime = parseHikvisionEventTime(event.time);
-          const YYYY = new Date(event.time).getFullYear();
-          const MM = parsedTime.month;
-          const DD = parsedTime.day;
-          const hh = String(new Date(event.time).getHours()).padStart(2, '0');
-          const mm = String(new Date(event.time).getMinutes()).padStart(2, '0');
-          const ss = String(new Date(event.time).getSeconds()).padStart(2, '0');
-          const dateStamp = `${YYYY}${MM}${DD}${hh}${mm}${ss}`;
-          
-          const entry_id = `T${dateStamp}${numericCode}${serial}`;
-          const atn_token = `${parsedTime.yearShort}${MM}${DD}${numericCode}`;
-          const employee_id = employeeNo.replace(/([A-Za-z]+)([0-9]+)/, '$1-$2');
-
-          records.push({
-            entry_id,
-            atn_token,
-            employee_id,
-            user_name: userName,
-            attendance_date: parsedTime.dateStr,
-            attendance_time: parsedTime.timeStr12,
-            serial_no: serial,
-          });
-        }
-      }
-    } catch (hikErr: any) {
-      console.warn('Direct machine event fetch notice:', hikErr.message);
-    }
-
-    // 2. Fetch records from Supabase Cloud DB if available
+    // 2. Pure Supabase Cloud DB Query: UI displays data directly from Supabase Cloud
     if (supabase) {
       try {
-        const { data: supaData } = await supabase
+        const { data: supaData, error: supaErr } = await supabase
           .from('attendance_log')
           .select('*')
-          .limit(500);
+          .limit(1000);
 
-        if (supaData && supaData.length > 0) {
-          const existingIds = new Set(records.map((r) => r.entry_id));
-          for (const sRow of supaData) {
-            if (!existingIds.has(sRow.entry_id)) {
-              records.push({
-                ...sRow,
-                attendance_time: formatTo12Hour(sRow.attendance_time),
-              });
-            }
-          }
+        if (supaErr) {
+          console.error('Supabase query error:', supaErr.message);
+        } else if (supaData && supaData.length > 0) {
+          records = supaData.map((sRow) => ({
+            ...sRow,
+            attendance_time: formatTo12Hour(sRow.attendance_time),
+          }));
         }
       } catch (sErr: any) {
         console.warn('Supabase fetch notice:', sErr.message);
       }
     }
 
-    // Sort by serial_no descending
-    records.sort((a, b) => (b.serial_no || 0) - (a.serial_no || 0));
+    // Sort by entry_id / serial_no descending so latest punches appear first
+    records.sort((a, b) => {
+      const sA = a.serial_no || 0;
+      const sB = b.serial_no || 0;
+      if (sA !== sB) return sB - sA;
+      return (b.entry_id || '').localeCompare(a.entry_id || '');
+    });
 
     // Filter today's records if available, otherwise return all historical records
     const todayRecords = records.filter(
