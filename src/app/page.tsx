@@ -71,18 +71,18 @@ export default function TerminalDashboard() {
 
   const prevCountRef = useRef<number>(0);
 
-  const addLog = (msg: string) => {
-    const timestamp = new Date().toLocaleTimeString();
-    setLogs((prev) => [`[${timestamp}] ${msg}`, ...prev.slice(0, 15)]);
-  };
+  const addLog = useCallback((msg: string) => {
+    const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
+    setLogs((prev) => [`[${timestamp}] ${msg}`, ...prev.slice(0, 100)]);
+  }, []);
 
   // Browser Client-Side Direct LAN Probe for Vercel Deployments
   const checkBrowserDirectConnection = useCallback(async (targetIp: string) => {
     try {
+      addLog(`PROBE: Testing browser direct HTTP ping to http://${targetIp}/ISAPI/System/deviceInfo...`);
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 2000);
 
-      // Attempt direct HTTP fetch to local Hikvision machine from user's browser
       const res = await fetch(`http://${targetIp}/ISAPI/System/deviceInfo`, {
         method: 'GET',
         mode: 'no-cors',
@@ -92,6 +92,7 @@ export default function TerminalDashboard() {
       clearTimeout(timeoutId);
 
       if (res) {
+        addLog(`SUCCESS: Browser direct Wi-Fi response received from http://${targetIp}!`);
         setDeviceInfo({
           isConnected: true,
           ip: targetIp,
@@ -105,10 +106,11 @@ export default function TerminalDashboard() {
       }
     } catch {}
     return false;
-  }, []);
+  }, [addLog]);
 
   const fetchAttendanceData = useCallback(async () => {
     try {
+      addLog(`FETCH: Requesting /api/attendance sync & records from Supabase Cloud...`);
       const res = await fetch('/api/attendance');
       if (res.ok) {
         const data = await res.json();
@@ -121,7 +123,7 @@ export default function TerminalDashboard() {
             const topRecord = newRecordsList[0];
             const name = topRecord ? topRecord.user_name : 'Employee';
             const time = topRecord ? topRecord.attendance_time : '';
-            addLog(`⚡ REALTIME AUTO PUNCH DETECTED: ${diff} New Record(s)! [${name}] at ${time}`);
+            addLog(`⚡ REALTIME AUTO PUNCH DETECTED: +${diff} New Punch(es)! [${name}] at ${time}`);
           }
           prevCountRef.current = newTotal;
 
@@ -129,8 +131,10 @@ export default function TerminalDashboard() {
             setDeviceInfo(data.deviceInfo);
             if (data.deviceInfo.ip) setDeviceIp(data.deviceInfo.ip);
 
-            // If server-side (Vercel) returned offline, try browser direct local Wi-Fi check
-            if (!data.deviceInfo.isConnected) {
+            if (data.deviceInfo.isConnected) {
+              addLog(`DEVICE_STATUS: Connected [IP: ${data.deviceInfo.ip}, Model: ${data.deviceInfo.model || 'DS-K1T320EFWX'}]`);
+            } else {
+              addLog(`DEVICE_STATUS: Offline/Unreachable at IP ${data.deviceInfo.ip || deviceIp}. Probing browser direct LAN...`);
               const directConnected = await checkBrowserDirectConnection(data.deviceInfo.ip || deviceIp);
               if (directConnected) {
                 addLog(`NETWORK: Local Wi-Fi browser bridge established with machine at ${data.deviceInfo.ip || deviceIp}!`);
@@ -141,21 +145,25 @@ export default function TerminalDashboard() {
           setRecords(newRecordsList);
           setTotal(newTotal);
           setTodayDate(data.todayDate || new Date().toLocaleDateString('en-GB'));
+          addLog(`SYNC_OK: DB returned ${newTotal} active record(s) for ${data.todayDate || 'today'}.`);
+        } else {
+          addLog(`WARN: API returned success=false - ${data.error || 'Unknown error'}`);
         }
+      } else {
+        addLog(`ERROR: HTTP ${res.status} returned from /api/attendance`);
       }
     } catch (err: any) {
       addLog(`ERROR: Failed to fetch attendance data - ${err.message}`);
-      // Fallback browser direct check
       checkBrowserDirectConnection(deviceIp);
     } finally {
       setLoading(false);
       setIsCheckingStatus(false);
     }
-  }, [checkBrowserDirectConnection, deviceIp]);
+  }, [addLog, checkBrowserDirectConnection, deviceIp]);
 
   const triggerManualSync = async () => {
     setIsSyncing(true);
-    addLog(`EXEC: ./hikvision_sync --device=${deviceIp}...`);
+    addLog(`EXEC: Triggering manual device sync command -> ./hikvision_sync --device=${deviceIp}...`);
     try {
       const res = await fetch('/api/sync', { method: 'POST' });
       if (res.ok) {
@@ -163,14 +171,14 @@ export default function TerminalDashboard() {
         if (data.deviceIp) setDeviceIp(data.deviceIp);
         const count = data.newRecordsInserted || 0;
         const maxS = data.lastSerial || 0;
-        addLog(`SUCCESS: Device (${data.deviceIp || deviceIp}) sync complete. Inserted: ${count} record(s). Max Serial: #${maxS}`);
+        addLog(`SUCCESS: Sync complete on IP ${data.deviceIp || deviceIp}. Inserted ${count} new record(s). Max Serial: #${maxS}`);
         setLastSyncTime(new Date().toLocaleTimeString());
         await fetchAttendanceData();
       } else {
-        addLog(`ERROR: Device sync HTTP ${res.status}`);
+        addLog(`ERROR: Device sync API returned HTTP ${res.status}`);
       }
     } catch (err: any) {
-      addLog(`FATAL: Connection exception - ${err.message}`);
+      addLog(`FATAL: Device sync exception - ${err.message}`);
     } finally {
       setIsSyncing(false);
     }
@@ -178,7 +186,7 @@ export default function TerminalDashboard() {
 
   const scanLocalNetwork = async () => {
     setIsScanning(true);
-    addLog(`SCANNING: Discovering Hikvision devices on Wi-Fi / LAN subnets...`);
+    addLog(`SCANNING: Executing SADP UDP multicast & subnet discovery scan...`);
     try {
       const res = await fetch('/api/scan', { method: 'POST' });
       if (res.ok) {
@@ -186,9 +194,9 @@ export default function TerminalDashboard() {
         if (data.ip) {
           setDeviceIp(data.ip);
           if (data.isDiscovered) {
-            addLog(`SUCCESS: Found Hikvision device on IP: ${data.ip} (Scanned ${data.scannedCount} addresses)`);
+            addLog(`SUCCESS: Discovered Hikvision machine on IP ${data.ip} (Scanned ${data.scannedCount} addresses)`);
           } else {
-            addLog(`WARN: No response from new IP scan. Defaulting to: ${data.ip}`);
+            addLog(`WARN: No new response from scan. Using default IP: ${data.ip}`);
           }
         }
       } else {
@@ -199,6 +207,30 @@ export default function TerminalDashboard() {
     } finally {
       setIsScanning(false);
     }
+  };
+
+  const handleSearchChange = (val: string) => {
+    setSearch(val);
+    if (val.trim()) {
+      addLog(`SEARCH: Filtering records with query "${val}"...`);
+    }
+  };
+
+  const handleViewModeChange = (mode: 'SUMMARY' | 'RAW') => {
+    setViewMode(mode);
+    addLog(`UI_LAYOUT: Switched table view mode to [${mode}]`);
+  };
+
+  const handleThemeToggle = () => {
+    const nextTheme = theme === 'LIGHT' ? 'DARK' : 'LIGHT';
+    setTheme(nextTheme);
+    addLog(`THEME: Visual interface switched to [${nextTheme}_MODE]`);
+  };
+
+  const handleAutoPollToggle = () => {
+    const nextState = !isAutoPoll;
+    setIsAutoPoll(nextState);
+    addLog(`DAEMON: Auto-polling loop toggled [${nextState ? 'ACTIVE' : 'PAUSED'}]`);
   };
 
   useEffect(() => {
@@ -232,33 +264,35 @@ export default function TerminalDashboard() {
     }, 15000);
 
     return () => clearTimeout(timeoutTimer);
-  }, []);
+  }, [addLog]);
 
   // Initial Load Status Check
   useEffect(() => {
-    addLog(`INIT: Axom Biometric Daemon initialized.`);
-    addLog(`NETWORK: Auto-detecting local LAN/Wi-Fi subnets...`);
+    addLog(`INIT: Axom Biometric Monitor Daemon v2.5 initialized.`);
+    addLog(`CONFIG: Supabase Cloud DB & Hikvision ISAPI Digest driver loaded.`);
+    addLog(`NETWORK: Target device IP set to ${deviceIp}. Probing connection...`);
     fetchAttendanceData();
     setLastSyncTime(new Date().toLocaleTimeString());
-  }, [fetchAttendanceData]);
+  }, [fetchAttendanceData, addLog, deviceIp]);
 
   // Polling ONLY runs after status check completes AND machine is CONNECTED!
   useEffect(() => {
     let interval: any;
 
     if (!isCheckingStatus && deviceInfo && deviceInfo.isConnected && isAutoPoll) {
-      addLog(`POLLING: Machine connected [${deviceInfo.ip}]. Auto-poll active (every 2.0s).`);
+      addLog(`POLLING_HEARTBEAT: Machine connected [${deviceInfo.ip}]. Polling active (every 2.0s).`);
       interval = setInterval(() => {
+        addLog(`TICK: 2.0s poll tick triggered.`);
         fetchAttendanceData();
       }, 2000);
     } else if (!isCheckingStatus && (!deviceInfo || !deviceInfo.isConnected)) {
-      addLog(`POLLING: Paused because machine is currently OFFLINE.`);
+      addLog(`POLLING_IDLE: Auto-polling paused because machine is currently OFFLINE.`);
     }
 
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [isCheckingStatus, deviceInfo, isAutoPoll, fetchAttendanceData]);
+  }, [isCheckingStatus, deviceInfo, isAutoPoll, fetchAttendanceData, addLog]);
 
   const filteredRecords = records.filter(
     (item) =>
@@ -369,7 +403,7 @@ export default function TerminalDashboard() {
               {/* Interactive Toggle Switch Slider Component */}
               <div 
                 className="flex items-center gap-2 cursor-pointer select-none group" 
-                onClick={() => setTheme(isLight ? 'DARK' : 'LIGHT')}
+                onClick={handleThemeToggle}
                 title="Toggle Light / Dark Theme"
               >
                 <span className={`text-[10px] font-bold ${isLight ? 'text-slate-900' : 'text-slate-400'}`}>
@@ -502,7 +536,7 @@ export default function TerminalDashboard() {
                     type="text"
                     placeholder='"search employee or ID..."'
                     value={search}
-                    onChange={(e) => setSearch(e.target.value)}
+                    onChange={(e) => handleSearchChange(e.target.value)}
                     className={`flex-1 bg-transparent border-none text-xs focus:outline-none font-mono font-bold ${
                       isLight ? 'text-slate-900 placeholder-slate-400' : 'text-sky-200 placeholder-slate-600'
                     }`}
@@ -538,7 +572,7 @@ export default function TerminalDashboard() {
                   </button>
 
                   <button
-                    onClick={() => setIsAutoPoll(!isAutoPoll)}
+                    onClick={handleAutoPollToggle}
                     className={`px-3 py-1.5 rounded border-2 text-xs font-bold transition-all ${
                       isAutoPoll
                         ? isLight
@@ -559,7 +593,7 @@ export default function TerminalDashboard() {
             }`}>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setViewMode('SUMMARY')}
+                  onClick={() => handleViewModeChange('SUMMARY')}
                   className={`flex items-center gap-1.5 px-3 py-1 rounded font-bold transition-all ${
                     viewMode === 'SUMMARY'
                       ? isLight
@@ -575,7 +609,7 @@ export default function TerminalDashboard() {
                 </button>
 
                 <button
-                  onClick={() => setViewMode('RAW')}
+                  onClick={() => handleViewModeChange('RAW')}
                   className={`flex items-center gap-1.5 px-3 py-1 rounded font-bold transition-all ${
                     viewMode === 'RAW'
                       ? isLight
@@ -828,7 +862,7 @@ export default function TerminalDashboard() {
                 isLight ? 'border-black' : 'border-slate-800'
               }`}>
                 <span className={`flex items-center gap-1.5 font-bold ${isLight ? 'text-emerald-600' : 'text-emerald-400'}`}>
-                  <FileCode className="w-3.5 h-3.5" /> SYSTEM_LOG_OUTPUT (stdout)
+                  <FileCode className="w-3.5 h-3.5" /> SYSTEM_LOG_OUTPUT (stdout) [{logs.length} EVENTS]
                 </span>
                 <button
                   onClick={() => setLogs([])}
@@ -840,7 +874,7 @@ export default function TerminalDashboard() {
                 </button>
               </div>
 
-              <div className="h-28 overflow-y-auto space-y-1 font-mono text-[11px] leading-relaxed scrollbar-thin scrollbar-thumb-slate-400">
+              <div className="h-44 overflow-y-auto space-y-1 font-mono text-[11px] leading-relaxed scrollbar-thin scrollbar-thumb-slate-400">
                 {logs.length === 0 ? (
                   <div className={`italic ${isLight ? 'text-slate-500' : 'text-slate-500'}`}>No output logged yet. Waiting for system events...</div>
                 ) : (
@@ -850,12 +884,14 @@ export default function TerminalDashboard() {
                       className={`truncate ${
                         log.includes('ERROR') || log.includes('FATAL')
                           ? 'text-red-600 font-bold'
-                          : log.includes('SUCCESS')
+                          : log.includes('SUCCESS') || log.includes('SYNC_OK')
                           ? 'text-emerald-600 font-bold'
                           : log.includes('WARN')
                           ? 'text-amber-600 font-bold'
                           : log.includes('REALTIME')
                           ? 'text-amber-600 font-bold'
+                          : log.includes('TICK')
+                          ? 'text-sky-600'
                           : isLight ? 'text-slate-700 font-medium' : 'text-slate-400'
                       }`}
                     >
