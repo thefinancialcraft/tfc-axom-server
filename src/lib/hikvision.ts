@@ -68,7 +68,7 @@ export function parseHikvisionEventTime(timeStr: string): {
     let h = parseInt(match[4], 10);
     const m = match[5];
     const s = match[6];
-    
+
     const hh24 = String(h).padStart(2, '0');
     const timeStr24 = `${hh24}:${m}:${s}`;
 
@@ -142,7 +142,7 @@ export function formatTo24Hour(timeStr: string): string {
   if (!timeStr) return '';
   const isPM = timeStr.toUpperCase().includes('PM');
   const isAM = timeStr.toUpperCase().includes('AM');
-  
+
   if (!isPM && !isAM) return timeStr.trim();
 
   const clean = timeStr.replace(/AM|PM/gi, '').trim();
@@ -187,7 +187,7 @@ export function scanViaSADP(timeoutMs = 1500): Promise<string[]> {
 
       socket.on('error', () => {
         if (socket) {
-          try { socket.close(); } catch {}
+          try { socket.close(); } catch { }
         }
         resolve(discoveredIps);
       });
@@ -208,7 +208,7 @@ export function scanViaSADP(timeoutMs = 1500): Promise<string[]> {
 
     setTimeout(() => {
       if (socket) {
-        try { socket.close(); } catch {}
+        try { socket.close(); } catch { }
       }
       resolve(discoveredIps);
     }, timeoutMs);
@@ -242,7 +242,7 @@ export function getLocalSubnets(): string[] {
 
 async function checkIpIsHikvision(ip: string): Promise<boolean> {
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-  
+
   const testEndpoints = [
     `https://${ip}/ISAPI/System/deviceInfo`,
     `http://${ip}/ISAPI/System/deviceInfo`,
@@ -366,9 +366,16 @@ export async function discoverHikvisionDevice(forceRescan = false): Promise<{
   };
 }
 
+let cachedDeviceInfo: HikvisionDeviceInfo | null = null;
+let lastDeviceInfoTs = 0;
+
 export async function getHikvisionDeviceInfo(): Promise<HikvisionDeviceInfo> {
-  const discovery = await discoverHikvisionDevice(false);
-  const ip = discovery.ip;
+  const now = Date.now();
+  if (cachedDeviceInfo && now - lastDeviceInfoTs < 10000) {
+    return cachedDeviceInfo;
+  }
+
+  const ip = cachedHikIp || DEFAULT_HIK_IP;
   const uri = '/ISAPI/System/deviceInfo';
   const url = `https://${ip}${uri}`;
 
@@ -376,7 +383,7 @@ export async function getHikvisionDeviceInfo(): Promise<HikvisionDeviceInfo> {
     const firstRes = await fetchHikvisionHttps(url, { method: 'GET' }).catch(() => null);
 
     if (!firstRes) {
-      return {
+      cachedDeviceInfo = {
         isConnected: false,
         ip,
         model: 'DS-K1T320EFWX',
@@ -385,6 +392,8 @@ export async function getHikvisionDeviceInfo(): Promise<HikvisionDeviceInfo> {
         macAddress: 'a4:d5:c2:1c:4d:83',
         firmwareVersion: 'V3.5.2',
       };
+      lastDeviceInfoTs = now;
+      return cachedDeviceInfo;
     }
 
     if (firstRes.status === 401) {
@@ -404,7 +413,7 @@ export async function getHikvisionDeviceInfo(): Promise<HikvisionDeviceInfo> {
         const macMatch = xmlText.match(/<macAddress>([^<]+)<\/macAddress>/i);
         const fwMatch = xmlText.match(/<firmwareVersion>([^<]+)<\/firmwareVersion>/i);
 
-        return {
+        cachedDeviceInfo = {
           isConnected: true,
           ip,
           model: modelMatch ? modelMatch[1] : 'DS-K1T320EFWX',
@@ -413,11 +422,13 @@ export async function getHikvisionDeviceInfo(): Promise<HikvisionDeviceInfo> {
           macAddress: macMatch ? macMatch[1] : 'a4:d5:c2:1c:4d:83',
           firmwareVersion: fwMatch ? fwMatch[1] : 'V3.5.2',
         };
+        lastDeviceInfoTs = now;
+        return cachedDeviceInfo;
       }
     }
-  } catch (err) {}
+  } catch (err) { }
 
-  return {
+  cachedDeviceInfo = {
     isConnected: false,
     ip,
     model: 'DS-K1T320EFWX',
@@ -426,6 +437,8 @@ export async function getHikvisionDeviceInfo(): Promise<HikvisionDeviceInfo> {
     macAddress: 'a4:d5:c2:1c:4d:83',
     firmwareVersion: 'V3.5.2',
   };
+  lastDeviceInfoTs = now;
+  return cachedDeviceInfo;
 }
 
 // ----------------------------------------------------
@@ -499,6 +512,10 @@ function fetchHikvisionHttps(
           json: () => Promise.resolve(JSON.parse(data || '{}')),
         });
       });
+    });
+
+    req.setTimeout(400, () => {
+      req.destroy(new Error('Hikvision connection timeout (400ms)'));
     });
 
     req.on('error', (err) => reject(err));
@@ -594,7 +611,7 @@ export async function syncHikvisionAttendance() {
             supaRows.forEach((r) => processedEntryIds.add(r.entry_id));
           }
         }
-      } catch {}
+      } catch { }
     }
 
     let maxSerial = 0;
@@ -660,7 +677,7 @@ export async function syncHikvisionAttendance() {
         const mm = String(new Date(event.time).getMinutes()).padStart(2, '0');
         const ss = String(new Date(event.time).getSeconds()).padStart(2, '0');
         const dateStamp = `${YYYY}${MM}${DD}${hh}${mm}${ss}`;
-        
+
         const entry_id = `T${dateStamp}${numericCode}${serial}`;
 
         if (!processedEntryIds.has(entry_id)) {

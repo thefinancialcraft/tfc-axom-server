@@ -18,14 +18,12 @@ export async function GET(request: Request) {
 
     const nowTs = Date.now();
     
-    // 1. Synchronous / Throttle Machine Sync: Ensure fresh punches are fetched on load
-    if (nowTs - lastAutoSyncTime > 2000) {
+    // 1. Non-blocking Machine Sync: trigger in background so Supabase fetch returns INSTANTLY
+    if (nowTs - lastAutoSyncTime > 3000) {
       lastAutoSyncTime = nowTs;
-      try {
-        await syncHikvisionAttendance();
-      } catch (syncErr: any) {
-        console.warn('Initial sync warning:', syncErr.message);
-      }
+      syncHikvisionAttendance().catch((syncErr) => {
+        console.warn('Background sync warning:', syncErr.message);
+      });
     }
 
     const supabase = getSupabaseClient();
@@ -55,19 +53,46 @@ export async function GET(request: Request) {
     const DD = String(now.getDate()).padStart(2, '0');
     const todayStrIso = `${YYYY}-${MM}-${DD}`; // e.g. "2026-08-21"
 
-    // Construct SQL date filter array if a specific date or TODAY is requested
+    const startDateParam = searchParams.get('startDate');
+    const endDateParam = searchParams.get('endDate');
+
+    // Construct SQL date filter array if a specific date, date range, or TODAY is requested
     let filterDateValues: string[] = [];
 
-    if (!dateParam || dateParam === 'TODAY' || dateParam === todayStrIso) {
-      filterDateValues = [todayStrFull, todayStr, todayStrIso];
-    } else if (dateParam && dateParam !== 'ALL') {
-      const parts = dateParam.split('-');
-      if (parts.length === 3) {
-        const [y, m, d] = parts;
-        const shortY = y.slice(-2);
-        filterDateValues = [`${d}/${m}/${y}`, `${d}/${m}/${shortY}`, dateParam];
-      } else {
-        filterDateValues = [dateParam];
+    if (startDateParam && endDateParam) {
+      const startParts = startDateParam.split('-').map(Number);
+      const endParts = endDateParam.split('-').map(Number);
+      if (startParts.length === 3 && endParts.length === 3) {
+        const start = new Date(startParts[0], startParts[1] - 1, startParts[2]);
+        const end = new Date(endParts[0], endParts[1] - 1, endParts[2]);
+        const minDate = start < end ? start : end;
+        const maxDate = start > end ? start : end;
+
+        const curr = new Date(minDate);
+        while (curr <= maxDate) {
+          const y = curr.getFullYear();
+          const m = String(curr.getMonth() + 1).padStart(2, '0');
+          const d = String(curr.getDate()).padStart(2, '0');
+          const shortY = String(y).slice(-2);
+          
+          filterDateValues.push(`${d}/${m}/${y}`, `${d}/${m}/${shortY}`, `${y}-${m}-${d}`);
+          curr.setDate(curr.getDate() + 1);
+        }
+      }
+    }
+
+    if (filterDateValues.length === 0) {
+      if (!dateParam || dateParam === 'TODAY' || dateParam === todayStrIso) {
+        filterDateValues = [todayStrFull, todayStr, todayStrIso];
+      } else if (dateParam && dateParam !== 'ALL') {
+        const parts = dateParam.split('-');
+        if (parts.length === 3) {
+          const [y, m, d] = parts;
+          const shortY = y.slice(-2);
+          filterDateValues = [`${d}/${m}/${y}`, `${d}/${m}/${shortY}`, dateParam];
+        } else {
+          filterDateValues = [dateParam];
+        }
       }
     }
 

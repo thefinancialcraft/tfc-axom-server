@@ -19,7 +19,10 @@ import {
   Cpu,
   Sun,
   Moon,
-  Calendar
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown
 } from 'lucide-react';
 
 interface RecordItem {
@@ -39,6 +42,7 @@ interface GroupedAttendance {
   check_in_time: string;
   check_out_time: string;
   total_punches: number;
+  latest_punch_seconds: number;
 }
 
 interface DeviceInfoState {
@@ -55,13 +59,107 @@ export default function TerminalDashboard() {
   const [allRecords, setAllRecords] = useState<RecordItem[]>([]);
   const [todayRecordsList, setTodayRecordsList] = useState<RecordItem[]>([]);
   const [dateFilter, setDateFilter] = useState<'TODAY' | 'ALL' | 'CUSTOM'>('TODAY');
-  const [customDate, setCustomDate] = useState<string>(() => {
+  const [startDate, setStartDate] = useState<string>(() => {
     const now = new Date();
     const YYYY = now.getFullYear();
     const MM = String(now.getMonth() + 1).padStart(2, '0');
     const DD = String(now.getDate()).padStart(2, '0');
     return `${YYYY}-${MM}-${DD}`;
   });
+  const [endDate, setEndDate] = useState<string | null>(null);
+  const [isPickingRangeEnd, setIsPickingRangeEnd] = useState<boolean>(false);
+  const [isCalendarOpen, setIsCalendarOpen] = useState<boolean>(false);
+  const [calendarMonth, setCalendarMonth] = useState<number>(() => new Date().getMonth());
+  const [calendarYear, setCalendarYear] = useState<number>(() => new Date().getFullYear());
+
+  const handleShiftDay = (deltaDays: number) => {
+    const parts = startDate.split('-').map(Number);
+    if (parts.length !== 3) return;
+    const [y, m, d] = parts;
+    const dateObj = new Date(y, m - 1, d);
+    dateObj.setDate(dateObj.getDate() + deltaDays);
+    const newY = dateObj.getFullYear();
+    const newM = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const newD = String(dateObj.getDate()).padStart(2, '0');
+    setLoading(true);
+    setStartDate(`${newY}-${newM}-${newD}`);
+    setEndDate(null);
+    setIsPickingRangeEnd(false);
+  };
+
+  const formatSingleDateLabel = (isoStr: string) => {
+    const parts = isoStr.split('-').map(Number);
+    if (parts.length !== 3) return isoStr;
+    const [y, m, d] = parts;
+    const dateObj = new Date(y, m - 1, d);
+    const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+    return `${d} ${months[dateObj.getMonth()]} ${y}`;
+  };
+
+  const formatCustomDateLabel = (startIso: string, endIso?: string | null) => {
+    if (!endIso || startIso === endIso) {
+      return formatSingleDateLabel(startIso);
+    }
+    const minIso = startIso < endIso ? startIso : endIso;
+    const maxIso = startIso > endIso ? startIso : endIso;
+    return `${formatSingleDateLabel(minIso)} ➔ ${formatSingleDateLabel(maxIso)}`;
+  };
+
+  const handleDateCellClick = (isoDateStr: string) => {
+    if (!isPickingRangeEnd || !startDate) {
+      setStartDate(isoDateStr);
+      setEndDate(null);
+      setIsPickingRangeEnd(true);
+    } else {
+      setLoading(true);
+      if (isoDateStr < startDate) {
+        setEndDate(startDate);
+        setStartDate(isoDateStr);
+      } else {
+        setEndDate(isoDateStr);
+      }
+      setIsPickingRangeEnd(false);
+      setIsCalendarOpen(false);
+    }
+  };
+
+  const setPresetDate = (preset: 'TODAY' | 'YESTERDAY' | 'LAST7DAYS') => {
+    const d = new Date();
+    const YYYY = d.getFullYear();
+    const MM = String(d.getMonth() + 1).padStart(2, '0');
+    const DD = String(d.getDate()).padStart(2, '0');
+    const todayIso = `${YYYY}-${MM}-${DD}`;
+
+    setLoading(true);
+    setIsPickingRangeEnd(false);
+
+    if (preset === 'YESTERDAY') {
+      d.setDate(d.getDate() - 1);
+      const yY = d.getFullYear();
+      const yM = String(d.getMonth() + 1).padStart(2, '0');
+      const yD = String(d.getDate()).padStart(2, '0');
+      setStartDate(`${yY}-${yM}-${yD}`);
+      setEndDate(null);
+      setCalendarYear(yY);
+      setCalendarMonth(d.getMonth());
+    } else if (preset === 'LAST7DAYS') {
+      const d7 = new Date();
+      d7.setDate(d7.getDate() - 6);
+      const sY = d7.getFullYear();
+      const sM = String(d7.getMonth() + 1).padStart(2, '0');
+      const sD = String(d7.getDate()).padStart(2, '0');
+      setStartDate(`${sY}-${sM}-${sD}`);
+      setEndDate(todayIso);
+      setCalendarYear(YYYY);
+      setCalendarMonth(d.getMonth());
+    } else {
+      setStartDate(todayIso);
+      setEndDate(null);
+      setCalendarYear(YYYY);
+      setCalendarMonth(d.getMonth());
+    }
+    setIsCalendarOpen(false);
+  };
   
   const [total, setTotal] = useState<number>(0);
   const [todayDate, setTodayDate] = useState<string>('');
@@ -121,9 +219,13 @@ export default function TerminalDashboard() {
 
   const fetchAttendanceData = useCallback(async () => {
     try {
-      const dateParam = dateFilter === 'TODAY' ? 'TODAY' : dateFilter === 'CUSTOM' ? customDate : 'ALL';
-      addLog(`FETCH: Requesting /api/attendance?date=${dateParam} from Supabase Cloud...`);
-      const res = await fetch(`/api/attendance?date=${dateParam}`);
+      const url = endDate && endDate !== startDate
+        ? `/api/attendance?startDate=${startDate}&endDate=${endDate}`
+        : `/api/attendance?date=${startDate}`;
+      
+      const label = formatCustomDateLabel(startDate, endDate);
+      addLog(`FETCH: Requesting ${url} from Supabase Cloud...`);
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         if (data.success) {
@@ -160,7 +262,7 @@ export default function TerminalDashboard() {
           setTotal(newTotal);
           setTodayDate(data.todayDate || new Date().toLocaleDateString('en-GB'));
           
-          addLog(`SYNC_OK: Fetched ${newTotal} record(s) matching filter [${dateParam}].`);
+          addLog(`SYNC_OK: Fetched ${newTotal} record(s) for [${label}].`);
         } else {
           addLog(`WARN: API returned success=false - ${data.error || 'Unknown error'}`);
         }
@@ -174,7 +276,7 @@ export default function TerminalDashboard() {
       setLoading(false);
       setIsCheckingStatus(false);
     }
-  }, [addLog, checkBrowserDirectConnection, deviceIp, dateFilter, customDate]);
+  }, [addLog, checkBrowserDirectConnection, deviceIp, startDate, endDate]);
 
   const triggerManualSync = async () => {
     setIsSyncing(true);
@@ -238,7 +340,10 @@ export default function TerminalDashboard() {
 
   const handleDateFilterChange = (filter: 'TODAY' | 'ALL' | 'CUSTOM', dateVal?: string) => {
     setDateFilter(filter);
-    if (dateVal) setCustomDate(dateVal);
+    if (dateVal) {
+      setStartDate(dateVal);
+      setEndDate(null);
+    }
     addLog(`DATE_FILTER: Switched filter to [${filter}${dateVal ? `: ${dateVal}` : ''}]`);
   };
 
@@ -344,12 +449,28 @@ export default function TerminalDashboard() {
 
   const todayIso = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
 
-  // Active records depending on dateFilter selection
-  const activeSourceRecords = dateFilter === 'TODAY'
-    ? allRecords.filter((r) => isRecordMatchingDate(r.attendance_date, todayIso))
-    : dateFilter === 'CUSTOM' && customDate
-    ? allRecords.filter((r) => isRecordMatchingDate(r.attendance_date, customDate))
-    : allRecords;
+  const isRecordMatchingRange = (recordDateStr: string, startIso: string, endIso?: string | null) => {
+    if (!recordDateStr) return false;
+    const clean = recordDateStr.trim();
+    if (!endIso || startIso === endIso) {
+      return isRecordMatchingDate(clean, startIso);
+    }
+    let recIso = clean;
+    if (clean.includes('/')) {
+      const parts = clean.split('/');
+      if (parts.length === 3) {
+        let [d, m, y] = parts;
+        if (y.length === 2) y = `20${y}`;
+        recIso = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+      }
+    }
+    const minIso = startIso < endIso ? startIso : endIso;
+    const maxIso = startIso > endIso ? startIso : endIso;
+    return recIso >= minIso && recIso <= maxIso;
+  };
+
+  // Active records filtered by Date / Date Range
+  const activeSourceRecords = allRecords.filter((r) => isRecordMatchingRange(r.attendance_date, startDate, endDate));
 
   const filteredRecords = activeSourceRecords.filter(
     (item) =>
@@ -390,7 +511,7 @@ export default function TerminalDashboard() {
       return h * 3600 + m * 60 + s;
     }
 
-    return item.serial_no || item.id || 0;
+    return item.serial_no || 0;
   };
 
   // Group records by Employee ID & Date -> First punch (earliest time) = Check In, Last punch (latest time) = Check Out
@@ -416,6 +537,7 @@ export default function TerminalDashboard() {
 
       const check_in_time = first.attendance_time;
       const check_out_time = sorted.length > 1 ? last.attendance_time : '--';
+      const latest_punch_seconds = getPunchSecondsOfDay(last);
 
       grouped.push({
         employee_id: first.employee_id,
@@ -424,10 +546,12 @@ export default function TerminalDashboard() {
         check_in_time,
         check_out_time,
         total_punches: sorted.length,
+        latest_punch_seconds,
       });
     });
 
-    return grouped.sort((a, b) => a.employee_id.localeCompare(b.employee_id));
+    // Sort descending by latest_punch_seconds so latest updated entries appear at TOP
+    return grouped.sort((a, b) => b.latest_punch_seconds - a.latest_punch_seconds);
   };
 
   const groupedList = getGroupedAttendance();
@@ -721,63 +845,175 @@ export default function TerminalDashboard() {
 
                 <span className="text-slate-500 hidden sm:inline">|</span>
 
-                {/* Date Filter Buttons & Interactive Custom Date Picker */}
+                {/* Standalone Previous Day Button */}
                 <button
-                  onClick={() => handleDateFilterChange('TODAY')}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-bold transition-all ${
-                    dateFilter === 'TODAY'
-                      ? isLight
-                        ? 'bg-emerald-600 text-white border-2 border-black'
-                        : 'bg-emerald-500 text-black border border-emerald-400'
-                      : isLight
-                      ? 'bg-white text-slate-900 border-2 border-black hover:bg-slate-100'
-                      : 'bg-slate-900 text-slate-400 border-2 border-slate-700 hover:text-slate-200'
+                  onClick={() => handleShiftDay(-1)}
+                  title="Previous Day"
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded border-2 font-bold text-xs transition-all active:scale-95 ${
+                    isLight
+                      ? 'bg-white border-black text-slate-900 hover:bg-slate-100'
+                      : 'bg-slate-900 border-slate-700 text-sky-400 hover:bg-sky-950/60 hover:border-sky-500/50'
                   }`}
                 >
-                  <Clock className="w-3.5 h-3.5" />
-                  <span>[TODAY ({allRecords.filter((r) => isRecordMatchingDate(r.attendance_date, todayIso)).length})]</span>
+                  <ChevronLeft className="w-3.5 h-3.5 text-sky-500" />
+                  <span className="hidden sm:inline">PREV</span>
                 </button>
 
-                <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-bold transition-all border-2 ${
-                  dateFilter === 'CUSTOM'
-                    ? isLight
-                      ? 'bg-sky-600 text-white border-black'
-                      : 'bg-sky-500 text-black border-sky-400'
-                    : isLight
-                    ? 'bg-white text-slate-900 border-black hover:bg-slate-100'
-                    : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-slate-200'
-                }`}>
-                  <Calendar className="w-3.5 h-3.5" />
-                  <span className="text-[11px]">DATE:</span>
-                  <input
-                    type="date"
-                    value={customDate}
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        setCustomDate(e.target.value);
-                        handleDateFilterChange('CUSTOM', e.target.value);
-                      }
-                    }}
-                    className={`bg-transparent text-xs font-mono font-bold focus:outline-none cursor-pointer ${
-                      dateFilter === 'CUSTOM' && !isLight ? 'text-black' : isLight ? 'text-slate-900' : 'text-sky-300'
+                {/* Standalone Main Date Display Badge Popover Anchor */}
+                <div className="relative">
+                  <button
+                    onClick={() => setIsCalendarOpen(!isCalendarOpen)}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded border-2 transition-all font-mono font-bold text-xs active:scale-95 ${
+                      isLight
+                        ? 'bg-emerald-50 text-emerald-900 hover:bg-emerald-100 border-black'
+                        : 'bg-emerald-950/80 text-emerald-400 hover:bg-emerald-900/60 border-emerald-500/50 shadow-md shadow-emerald-950/40'
                     }`}
-                  />
+                  >
+                    <Calendar className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>{formatCustomDateLabel(startDate, endDate)}</span>
+                    <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isCalendarOpen ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {/* Custom Calendar Dropdown Modal */}
+                  {isCalendarOpen && (
+                    <div className={`absolute left-0 mt-2 z-50 p-3 rounded-lg border-2 shadow-2xl w-80 transition-all font-mono ${
+                      isLight
+                        ? 'bg-white border-black text-slate-900 shadow-slate-400/50'
+                        : 'bg-[#090f1f] border-sky-500/60 text-sky-200 shadow-sky-950/80'
+                    }`}>
+                      {/* Banner Guide for Range Picking */}
+                      {isPickingRangeEnd && (
+                        <div className="mb-2 p-1.5 rounded text-[10px] font-bold text-center bg-amber-950/90 text-amber-300 border border-amber-500/50 animate-pulse">
+                          👉 CLICK 2ND DATE TO COMPLETE RANGE
+                        </div>
+                      )}
+
+                      {/* Dropdown Header: Month & Year Selector */}
+                      <div className="flex items-center justify-between pb-2 mb-2 border-b font-bold border-slate-700">
+                        <button
+                          onClick={() => {
+                            if (calendarMonth === 0) {
+                              setCalendarMonth(11);
+                              setCalendarYear(calendarYear - 1);
+                            } else {
+                              setCalendarMonth(calendarMonth - 1);
+                            }
+                          }}
+                          className={`p-1 rounded hover:bg-slate-800 ${isLight ? 'hover:bg-slate-200' : ''}`}
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                        </button>
+
+                        <span className="text-xs tracking-wider font-bold">
+                          {['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'][calendarMonth]} {calendarYear}
+                        </span>
+
+                        <button
+                          onClick={() => {
+                            if (calendarMonth === 11) {
+                              setCalendarMonth(0);
+                              setCalendarYear(calendarYear + 1);
+                            } else {
+                              setCalendarMonth(calendarMonth + 1);
+                            }
+                          }}
+                          className={`p-1 rounded hover:bg-slate-800 ${isLight ? 'hover:bg-slate-200' : ''}`}
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      {/* Presets: TODAY / YESTERDAY / LAST 7 DAYS */}
+                      <div className="flex gap-1 mb-2.5">
+                        <button
+                          onClick={() => setPresetDate('TODAY')}
+                          className={`flex-1 py-1 rounded text-[10px] font-bold border transition-colors ${
+                            isLight
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-400 hover:bg-emerald-100'
+                              : 'bg-emerald-950/80 text-emerald-400 border-emerald-700/80 hover:bg-emerald-900'
+                          }`}
+                        >
+                          [TODAY]
+                        </button>
+                        <button
+                          onClick={() => setPresetDate('YESTERDAY')}
+                          className={`flex-1 py-1 rounded text-[10px] font-bold border transition-colors ${
+                            isLight
+                              ? 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
+                              : 'bg-slate-900 text-slate-400 border-slate-700 hover:bg-slate-800'
+                          }`}
+                        >
+                          [YESTERDAY]
+                        </button>
+                        <button
+                          onClick={() => setPresetDate('LAST7DAYS')}
+                          className={`flex-1 py-1 rounded text-[10px] font-bold border transition-colors ${
+                            isLight
+                              ? 'bg-sky-50 text-sky-700 border-sky-400 hover:bg-sky-100'
+                              : 'bg-sky-950/80 text-sky-300 border-sky-700/80 hover:bg-sky-900'
+                          }`}
+                        >
+                          [7 DAYS]
+                        </button>
+                      </div>
+
+                      {/* Weekday Labels */}
+                      <div className="grid grid-cols-7 text-center text-[10px] font-bold text-slate-400 mb-1">
+                        <span>SU</span><span>MO</span><span>TU</span><span>WE</span><span>TH</span><span>FR</span><span>SA</span>
+                      </div>
+
+                      {/* Day Grid */}
+                      <div className="grid grid-cols-7 gap-1 text-center text-xs">
+                        {Array.from({ length: new Date(calendarYear, calendarMonth, 1).getDay() }).map((_, i) => (
+                          <div key={`empty-${i}`} />
+                        ))}
+                        {Array.from({ length: new Date(calendarYear, calendarMonth + 1, 0).getDate() }).map((_, i) => {
+                          const dayNum = i + 1;
+                          const formattedM = String(calendarMonth + 1).padStart(2, '0');
+                          const formattedD = String(dayNum).padStart(2, '0');
+                          const thisIso = `${calendarYear}-${formattedM}-${formattedD}`;
+                          
+                          const isStart = startDate === thisIso;
+                          const isEnd = endDate === thisIso;
+                          const minIso = endDate ? (startDate < endDate ? startDate : endDate) : startDate;
+                          const maxIso = endDate ? (startDate > endDate ? startDate : endDate) : startDate;
+                          const inRange = endDate && thisIso >= minIso && thisIso <= maxIso;
+
+                          return (
+                            <button
+                              key={`day-${dayNum}`}
+                              onClick={() => handleDateCellClick(thisIso)}
+                              className={`py-1 rounded font-bold transition-all text-xs ${
+                                isStart || isEnd
+                                  ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/40 border border-emerald-400 scale-105'
+                                  : inRange
+                                  ? 'bg-emerald-900/60 text-emerald-300 border border-emerald-700/60'
+                                  : isLight
+                                  ? 'hover:bg-slate-100 text-slate-800'
+                                  : 'hover:bg-sky-950/60 text-slate-300'
+                              }`}
+                            >
+                              {dayNum}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
+                {/* Standalone Next Day Button */}
                 <button
-                  onClick={() => handleDateFilterChange('ALL')}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-bold transition-all ${
-                    dateFilter === 'ALL'
-                      ? isLight
-                        ? 'bg-amber-500 text-black border-2 border-black'
-                        : 'bg-amber-500 text-black border border-amber-400'
-                      : isLight
-                      ? 'bg-white text-slate-900 border-2 border-black hover:bg-slate-100'
-                      : 'bg-slate-900 text-slate-400 border-2 border-slate-700 hover:text-slate-200'
+                  onClick={() => handleShiftDay(1)}
+                  title="Next Day"
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded border-2 font-bold text-xs transition-all active:scale-95 ${
+                    isLight
+                      ? 'bg-white border-black text-slate-900 hover:bg-slate-100'
+                      : 'bg-slate-900 border-slate-700 text-sky-400 hover:bg-sky-950/60 hover:border-sky-500/50'
                   }`}
                 >
-                  <Calendar className="w-3.5 h-3.5" />
-                  <span>[ALL ({allRecords.length})]</span>
+                  <span className="hidden sm:inline">NEXT</span>
+                  <ChevronRight className="w-3.5 h-3.5 text-sky-500" />
                 </button>
               </div>
 
@@ -826,15 +1062,15 @@ export default function TerminalDashboard() {
                         <tr>
                           <td colSpan={8} className={`py-8 text-center border ${isLight ? 'border-black text-slate-600 font-bold' : 'border-slate-800 text-slate-500'}`}>
                             <div className="flex items-center justify-center gap-2">
-                              <RotateCw className="w-4 h-4 animate-spin text-emerald-600" />
-                              <span>EXEC: calculating employee Check-In / Check-Out summaries...</span>
+                              <RotateCw className="w-4 h-4 animate-spin text-emerald-500" />
+                              <span className="font-mono">EXEC: fetching attendance records for [{formatCustomDateLabel(startDate, endDate)}]...</span>
                             </div>
                           </td>
                         </tr>
                       ) : groupedList.length === 0 ? (
                         <tr>
                           <td colSpan={8} className={`py-8 text-center border ${isLight ? 'border-black text-slate-600 font-bold' : 'border-slate-800 text-slate-500'}`}>
-                            [NO ATTENDANCE RECORDS FOUND FOR {dateFilter === 'TODAY' ? "TODAY" : "SELECTED FILTER"}]
+                            [NO ATTENDANCE RECORDS FOUND FOR {formatCustomDateLabel(startDate, endDate)}]
                           </td>
                         </tr>
                       ) : (
@@ -948,15 +1184,15 @@ export default function TerminalDashboard() {
                         <tr>
                           <td colSpan={8} className={`py-8 text-center border ${isLight ? 'border-black text-slate-600 font-bold' : 'border-slate-800 text-slate-500'}`}>
                             <div className="flex items-center justify-center gap-2">
-                              <RotateCw className="w-4 h-4 animate-spin text-emerald-600" />
-                              <span>EXEC: fetching raw records...</span>
+                              <RotateCw className="w-4 h-4 animate-spin text-sky-500" />
+                              <span className="font-mono">EXEC: fetching raw attendance punches for [{formatCustomDateLabel(startDate, endDate)}]...</span>
                             </div>
                           </td>
                         </tr>
                       ) : filteredRecords.length === 0 ? (
                         <tr>
                           <td colSpan={8} className={`py-8 text-center border ${isLight ? 'border-black text-slate-600 font-bold' : 'border-slate-800 text-slate-500'}`}>
-                            [NO RECORDS FOUND IN ATTENDANCE_LOGS]
+                            [NO RAW PUNCH RECORDS FOUND FOR {formatCustomDateLabel(startDate, endDate)}]
                           </td>
                         </tr>
                       ) : (
