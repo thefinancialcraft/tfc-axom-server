@@ -753,6 +753,7 @@ export default function TerminalDashboard() {
                       isLight ? 'bg-white text-slate-900 border-black font-bold' : 'bg-[#090e1a] text-slate-300 border-slate-700'
                     }`}>
                       <tr>
+                        <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-black text-amber-600' : 'border-slate-700 text-amber-400'}`}>#</th>
                         <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-black' : 'border-slate-700'}`}>EMPLOYEE_ID</th>
                         <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-black' : 'border-slate-700'}`}>USER_NAME</th>
                         <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-black' : 'border-slate-700'}`}>ATTENDANCE_DATE</th>
@@ -775,7 +776,7 @@ export default function TerminalDashboard() {
                     }`}>
                       {loading ? (
                         <tr>
-                          <td colSpan={7} className={`py-8 text-center border ${isLight ? 'border-black text-slate-600 font-bold' : 'border-slate-800 text-slate-500'}`}>
+                          <td colSpan={8} className={`py-8 text-center border ${isLight ? 'border-black text-slate-600 font-bold' : 'border-slate-800 text-slate-500'}`}>
                             <div className="flex items-center justify-center gap-2">
                               <RotateCw className="w-4 h-4 animate-spin text-emerald-600" />
                               <span>EXEC: calculating employee Check-In / Check-Out summaries...</span>
@@ -784,18 +785,23 @@ export default function TerminalDashboard() {
                         </tr>
                       ) : groupedList.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className={`py-8 text-center border ${isLight ? 'border-black text-slate-600 font-bold' : 'border-slate-800 text-slate-500'}`}>
+                          <td colSpan={8} className={`py-8 text-center border ${isLight ? 'border-black text-slate-600 font-bold' : 'border-slate-800 text-slate-500'}`}>
                             [NO ATTENDANCE RECORDS FOUND FOR {dateFilter === 'TODAY' ? "TODAY" : "SELECTED FILTER"}]
                           </td>
                         </tr>
                       ) : (
-                        groupedList.map((item) => (
+                        groupedList.map((item, idx) => (
                           <tr
                             key={`${item.employee_id}_${item.attendance_date}`}
                             className={`border-b transition-colors group ${
                               isLight ? 'bg-white hover:bg-slate-100 border-black text-slate-900' : 'hover:bg-sky-950/40 border-slate-800/80'
                             }`}
                           >
+                            <td className={`py-2.5 px-3 border-r font-bold ${
+                              isLight ? 'border-black text-amber-600' : 'border-slate-800/80 text-amber-400'
+                            }`}>
+                              #{idx + 1}
+                            </td>
                             <td className={`py-2.5 px-3 border-r ${isLight ? 'border-black' : 'border-slate-800/80'}`}>
                               <span className={`font-bold px-1.5 py-0.5 rounded border ${
                                 isLight
@@ -877,6 +883,7 @@ export default function TerminalDashboard() {
                       isLight ? 'bg-white text-slate-900 border-black font-bold' : 'bg-[#090e1a] text-slate-300 border-slate-700'
                     }`}>
                       <tr>
+                        <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-black text-amber-600' : 'border-slate-700 text-amber-400'}`}>#</th>
                         <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-black' : 'border-slate-700'}`}>SERIAL</th>
                         <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-black' : 'border-slate-700'}`}>EMPLOYEE_ID</th>
                         <th className={`py-2.5 px-3 border-r-2 font-bold ${isLight ? 'border-black' : 'border-slate-700'}`}>USER_NAME</th>
@@ -891,7 +898,7 @@ export default function TerminalDashboard() {
                     }`}>
                       {loading ? (
                         <tr>
-                          <td colSpan={7} className={`py-8 text-center border ${isLight ? 'border-black text-slate-600 font-bold' : 'border-slate-800 text-slate-500'}`}>
+                          <td colSpan={8} className={`py-8 text-center border ${isLight ? 'border-black text-slate-600 font-bold' : 'border-slate-800 text-slate-500'}`}>
                             <div className="flex items-center justify-center gap-2">
                               <RotateCw className="w-4 h-4 animate-spin text-emerald-600" />
                               <span>EXEC: fetching raw records...</span>
@@ -900,20 +907,25 @@ export default function TerminalDashboard() {
                         </tr>
                       ) : filteredRecords.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className={`py-8 text-center border ${isLight ? 'border-black text-slate-600 font-bold' : 'border-slate-800 text-slate-500'}`}>
+                          <td colSpan={8} className={`py-8 text-center border ${isLight ? 'border-black text-slate-600 font-bold' : 'border-slate-800 text-slate-500'}`}>
                             [NO RECORDS FOUND IN ATTENDANCE_LOGS]
                           </td>
                         </tr>
                       ) : (
-                        filteredRecords.map((item) => (
+                        filteredRecords.map((item, idx) => (
                           <tr
                             key={item.entry_id}
                             className={`border-b transition-colors group ${
                               isLight ? 'bg-white hover:bg-slate-100 border-black text-slate-900' : 'hover:bg-sky-950/40 border-slate-800/80'
                             }`}
                           >
+                            <td className={`py-2 px-3 border-r font-bold ${
+                              isLight ? 'border-black text-amber-600' : 'border-slate-800/80 text-amber-400'
+                            }`}>
+                              #{idx + 1}
+                            </td>
                             <td className={`py-2 px-3 border-r font-semibold ${
-                              isLight ? 'border-black text-amber-600 font-bold' : 'border-slate-800/80 text-amber-400'
+                              isLight ? 'border-black text-slate-700' : 'border-slate-800/80 text-slate-400'
                             }`}>
                               #{item.serial_no}
                             </td>
