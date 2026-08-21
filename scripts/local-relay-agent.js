@@ -1,13 +1,6 @@
 // ==============================================================================
 // TFC AXOM - LOCAL RELAY AGENT (FOR VERCEL CLOUD DEPLOYMENT)
 // ==============================================================================
-// Why is this needed?
-// Vercel runs in cloud data centers and cannot access private LAN IPs (192.168.1.63).
-// Run this lightweight script on any local PC/laptop connected to office Wi-Fi.
-// It fetches attendance from 192.168.1.63 and pushes directly to Supabase Cloud DB!
-//
-// Usage: node scripts/local-relay-agent.js
-// ==============================================================================
 
 const fs = require('fs');
 const path = require('path');
@@ -84,14 +77,14 @@ function parseHikTime(timeStr) {
     const yFull = match[1];
     const month = match[2];
     const day = match[3];
-    const dateStr = `${day}/${month}/${yFull.slice(-2)}`;
+    const dateStr = `${day}/${month}/${yFull}`;
     const hh24 = match[4];
     const mm = match[5];
     const ss = match[6];
     return { dateStr, timeStr24: `${hh24}:${mm}:${ss}`, yearShort: yFull.slice(-2), month, day, YYYY: yFull, hh: hh24, mm, ss };
   }
   const d = new Date(timeStr);
-  const dateStr = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getFullYear()).slice(-2)}`;
+  const dateStr = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getFullYear())}`;
   const timeStr24 = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
   return { dateStr, timeStr24, yearShort: String(d.getFullYear()).slice(-2), month: String(d.getMonth() + 1).padStart(2, '0'), day: String(d.getDate()).padStart(2, '0'), YYYY: String(d.getFullYear()), hh: String(d.getHours()).padStart(2, '0'), mm: String(d.getMinutes()).padStart(2, '0'), ss: String(d.getSeconds()).padStart(2, '0') };
 }
@@ -105,7 +98,6 @@ async function fetchHikvisionEvents() {
       searchResultPosition: 0,
       maxResults: 500,
       major: 5,
-      minor: 38,
       timeReverseOrder: true,
     },
   });
@@ -172,10 +164,21 @@ async function initRelay() {
 
       if (data?.AcsEvent?.InfoList && Array.isArray(data.AcsEvent.InfoList)) {
         for (const event of data.AcsEvent.InfoList) {
-          if (event.major !== 5 || event.minor !== 38) continue;
+          if (event.major !== 5) continue;
+
           const serial = parseInt(event.serialNo || '0', 10);
-          const employeeNo = (event.employeeNoString || '').trim();
-          const userName = (event.name || '').trim();
+          const employeeNo = (
+            event.employeeNoString ||
+            event.employeeNo ||
+            event.cardNo ||
+            ''
+          ).toString().trim();
+
+          const userName = (
+            event.name ||
+            event.userType ||
+            (employeeNo ? `Employee ${employeeNo}` : '')
+          ).toString().trim();
 
           if (!employeeNo || employeeNo === '--' || employeeNo.toLowerCase() === 'invalid' || !userName) continue;
 

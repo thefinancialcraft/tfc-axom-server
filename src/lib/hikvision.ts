@@ -62,7 +62,7 @@ export function parseHikvisionEventTime(timeStr: string): {
     const month = match[2];
     const day = match[3];
     const yearShort = yFull.slice(-2);
-    const dateStr = `${day}/${month}/${yearShort}`;
+    const dateStr = `${day}/${month}/${yFull}`; // Store DD/MM/YYYY for consistent date matching
 
     let h = parseInt(match[4], 10);
     const m = match[5];
@@ -115,7 +115,7 @@ export function parseHikvisionEventTime(timeStr: string): {
   }
 
   const yearShort = yearFull.slice(-2);
-  const dateStr = `${day}/${month}/${yearShort}`;
+  const dateStr = `${day}/${month}/${yearFull}`;
 
   return { dateStr, timeStr24, timeStr12, yearShort, month, day };
 }
@@ -484,13 +484,13 @@ export async function fetchHikvisionEvents(): Promise<{ data: any; deviceIp: str
   const uri = '/ISAPI/AccessControl/AcsEvent?format=json';
   const url = `https://${hikIp}${uri}`;
 
+  // Fetch ALL events (Removed minor: 38 filter so ALL employee verification types are returned!)
   const postData = JSON.stringify({
     AcsEventCond: {
       searchID: '1',
       searchResultPosition: 0,
       maxResults: 500,
       major: 5,
-      minor: 38,
       timeReverseOrder: true,
     },
   });
@@ -574,10 +574,21 @@ export async function syncHikvisionAttendance() {
           maxSerial = serial;
         }
 
-        if (event.major !== 5 || event.minor !== 38) continue;
+        // Accept all Major 5 Access Control events regardless of minor verification code!
+        if (event.major !== 5) continue;
 
-        const employeeNo = (event.employeeNoString || '').trim();
-        const userName = (event.name || '').trim();
+        const employeeNo = (
+          event.employeeNoString ||
+          event.employeeNo ||
+          event.cardNo ||
+          ''
+        ).toString().trim();
+
+        const userName = (
+          event.name ||
+          event.userType ||
+          (employeeNo ? `Employee ${employeeNo}` : '')
+        ).toString().trim();
 
         if (
           !employeeNo ||
