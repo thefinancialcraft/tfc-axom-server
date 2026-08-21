@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import {
   getSupabaseClient,
-  getLocalJsonRecords,
   formatTo12Hour,
   syncHikvisionAttendance,
-  getHikvisionDeviceInfo
+  getHikvisionDeviceInfo,
+  fetchHikvisionEvents,
+  parseHikvisionEventTime
 } from '@/lib/hikvision';
 
 export const dynamic = 'force-dynamic';
@@ -24,7 +25,6 @@ export async function GET() {
     }
 
     const supabase = getSupabaseClient();
-    const localRecords = getLocalJsonRecords();
     const deviceInfo = await getHikvisionDeviceInfo();
 
     const now = new Date();
@@ -46,21 +46,69 @@ export async function GET() {
     });
     const todayStrFull = formatterFull.format(now); // e.g. "20/08/2026"
 
-    let records: any[] = [...localRecords];
+    let records: any[] = [];
 
+    // 1. Fetch live events directly from Hikvision Machine
+    try {
+      const hikRes = await fetchHikvisionEvents();
+      if (hikRes?.data?.AcsEvent?.InfoList && Array.isArray(hikRes.data.AcsEvent.InfoList)) {
+        for (const event of hikRes.data.AcsEvent.InfoList) {
+          if (event.major !== 5 || event.minor !== 38) continue;
+          const employeeNo = (event.employeeNoString || '').trim();
+          const userName = (event.name || '').trim();
+
+          if (!employeeNo || employeeNo === '--' || employeeNo.toLowerCase() === 'invalid' || !userName) {
+            continue;
+          }
+
+          const numericCode = employeeNo.replace(/[^0-9]/g, '');
+          if (!numericCode) continue;
+
+          const serial = parseInt(event.serialNo || '0', 10);
+          const parsedTime = parseHikvisionEventTime(event.time);
+          const YYYY = new Date(event.time).getFullYear();
+          const MM = parsedTime.month;
+          const DD = parsedTime.day;
+          const hh = String(new Date(event.time).getHours()).padStart(2, '0');
+          const mm = String(new Date(event.time).getMinutes()).padStart(2, '0');
+          const ss = String(new Date(event.time).getSeconds()).padStart(2, '0');
+          const dateStamp = `${YYYY}${MM}${DD}${hh}${mm}${ss}`;
+          
+          const entry_id = `T${dateStamp}${numericCode}${serial}`;
+          const atn_token = `${parsedTime.yearShort}${MM}${DD}${numericCode}`;
+          const employee_id = employeeNo.replace(/([A-Za-z]+)([0-9]+)/, '$1-$2');
+
+          records.push({
+            entry_id,
+            atn_token,
+            employee_id,
+            user_name: userName,
+            attendance_date: parsedTime.dateStr,
+            attendance_time: parsedTime.timeStr12,
+            serial_no: serial,
+          });
+        }
+      }
+    } catch (hikErr: any) {
+      console.warn('Direct machine event fetch notice:', hikErr.message);
+    }
+
+    // 2. Fetch records from Supabase Cloud DB if available
     if (supabase) {
       try {
         const { data: supaData } = await supabase
           .from('attendance_log')
           .select('*')
-          .order('serial_no', { ascending: false })
           .limit(500);
 
         if (supaData && supaData.length > 0) {
           const existingIds = new Set(records.map((r) => r.entry_id));
           for (const sRow of supaData) {
             if (!existingIds.has(sRow.entry_id)) {
-              records.push(sRow);
+              records.push({
+                ...sRow,
+                attendance_time: formatTo12Hour(sRow.attendance_time),
+              });
             }
           }
         }
@@ -68,12 +116,6 @@ export async function GET() {
         console.warn('Supabase fetch notice:', sErr.message);
       }
     }
-
-    // Format all records to 12-Hour AM/PM format
-    records = records.map((r) => ({
-      ...r,
-      attendance_time: formatTo12Hour(r.attendance_time),
-    }));
 
     // Sort by serial_no descending
     records.sort((a, b) => (b.serial_no || 0) - (a.serial_no || 0));

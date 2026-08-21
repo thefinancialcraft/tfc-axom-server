@@ -1,8 +1,6 @@
 import crypto from 'crypto';
 import os from 'os';
 import dgram from 'dgram';
-import fs from 'fs';
-import path from 'path';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 let cachedHikIp: string | null = null;
@@ -42,6 +40,9 @@ export function getSupabaseClient(): SupabaseClient | null {
   }
   return supabaseInstance;
 }
+
+// In-Memory processed entry IDs cache (No disk file writes)
+const processedEntryIds = new Set<string>();
 
 // ----------------------------------------------------
 // TIME PARSER (SUPABASE 24H "17:12:00" & WEBSITE UI 12H "05:12:00 PM")
@@ -156,51 +157,6 @@ export function formatTo24Hour(timeStr: string): string {
 
   const hhStr = String(h).padStart(2, '0');
   return `${hhStr}:${m}:${s}`;
-}
-
-// ----------------------------------------------------
-// LOCAL FILE PERSISTENCE BACKUP (NO MYSQL DEPENDENCY)
-// ----------------------------------------------------
-
-const DATA_FILE = path.join(process.cwd(), 'data', 'attendance_logs.json');
-
-export function getLocalJsonRecords(): AttendanceRecord[] {
-  try {
-    if (fs.existsSync(DATA_FILE)) {
-      const raw = fs.readFileSync(DATA_FILE, 'utf-8');
-      const list: AttendanceRecord[] = JSON.parse(raw) || [];
-      return list.map((r) => ({
-        ...r,
-        attendance_time: formatTo24Hour(r.attendance_time),
-      }));
-    }
-  } catch (err) {
-    console.error('Error reading attendance JSON store:', err);
-  }
-  return [];
-}
-
-export function saveLocalJsonRecords(newRecords: AttendanceRecord[]) {
-  try {
-    const dir = path.dirname(DATA_FILE);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    const existing = getLocalJsonRecords();
-    const existingIds = new Set(existing.map((r) => r.entry_id));
-    
-    const formattedToAdd = newRecords.map((r) => ({
-      ...r,
-      attendance_time: formatTo24Hour(r.attendance_time),
-    }));
-
-    const toAdd = formattedToAdd.filter((r) => !existingIds.has(r.entry_id));
-    
-    const combined = [...toAdd, ...existing];
-    fs.writeFileSync(DATA_FILE, JSON.stringify(combined, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Error saving attendance JSON store:', err);
-  }
 }
 
 // ----------------------------------------------------
@@ -515,7 +471,7 @@ function buildDigestHeader(
   }
 }
 
-async function fetchHikvisionEvents(): Promise<{ data: any; deviceIp: string }> {
+export async function fetchHikvisionEvents(): Promise<{ data: any; deviceIp: string }> {
   const discovery = await discoverHikvisionDevice(false);
   const hikIp = discovery.ip;
 
@@ -567,16 +523,27 @@ async function fetchHikvisionEvents(): Promise<{ data: any; deviceIp: string }> 
 }
 
 // ----------------------------------------------------
-// REALTIME INSTANT DETECTION ENGINE (AUTO SUPABASE + SHEETS)
+// REALTIME DIRECT MACHINE TO SUPABASE CLOUD & SHEETS SYNC
 // ----------------------------------------------------
 
 export async function syncHikvisionAttendance() {
   try {
     const supabase = getSupabaseClient();
-    const localRecords = getLocalJsonRecords();
-    const existingEntryIds = new Set(localRecords.map((r) => r.entry_id));
 
-    let maxSerial = Math.max(0, ...localRecords.map((r) => r.serial_no || 0));
+    // Populate in-memory set from Supabase if empty
+    if (supabase && processedEntryIds.size === 0) {
+      try {
+        const { data: supaRows } = await supabase
+          .from('attendance_log')
+          .select('entry_id')
+          .limit(1000);
+        if (supaRows) {
+          supaRows.forEach((r) => processedEntryIds.add(r.entry_id));
+        }
+      } catch {}
+    }
+
+    let maxSerial = 0;
     const newRecords: AttendanceRecord[] = [];
 
     let fetchResult;
@@ -632,8 +599,8 @@ export async function syncHikvisionAttendance() {
         
         const entry_id = `T${dateStamp}${numericCode}${serial}`;
 
-        if (!existingEntryIds.has(entry_id)) {
-          existingEntryIds.add(entry_id);
+        if (!processedEntryIds.has(entry_id)) {
+          processedEntryIds.add(entry_id);
 
           const atn_token = `${parsedTime.yearShort}${MM}${DD}${numericCode}`;
           const employee_id = employeeNo.replace(/([A-Za-z]+)([0-9]+)/, '$1-$2');
@@ -652,10 +619,9 @@ export async function syncHikvisionAttendance() {
     }
 
     if (newRecords.length > 0) {
-      console.log(`⚡ DETECTED ${newRecords.length} NEW PUNCH(ES) FROM MACHINE! Updating Supabase & Sheets...`);
+      console.log(`⚡ DETECTED ${newRecords.length} NEW PUNCH(ES) FROM MACHINE! Updating Supabase Cloud & Sheets...`);
 
-      saveLocalJsonRecords(newRecords);
-
+      // Direct Instant Insert into Supabase Cloud Table (No local file backup)
       if (supabase) {
         try {
           const supaPayload = newRecords.map((r) => ({
@@ -678,6 +644,7 @@ export async function syncHikvisionAttendance() {
         }
       }
 
+      // Direct Instant Sync to Google Sheets
       if (GOOGLE_SCRIPT_URL) {
         try {
           await fetch(GOOGLE_SCRIPT_URL, {
