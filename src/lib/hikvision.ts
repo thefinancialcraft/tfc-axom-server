@@ -163,7 +163,7 @@ export function formatTo24Hour(timeStr: string): string {
 // AUTO-DISCOVERY & DEVICE INFO PROBE ENGINE
 // ----------------------------------------------------
 
-export function scanViaSADP(timeoutMs = 1200): Promise<string[]> {
+export function scanViaSADP(timeoutMs = 1500): Promise<string[]> {
   return new Promise((resolve) => {
     const discoveredIps: string[] = [];
     let socket: dgram.Socket | null = null;
@@ -251,7 +251,7 @@ async function checkIpIsHikvision(ip: string): Promise<boolean> {
   for (const url of testEndpoints) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 600);
+      const timeoutId = setTimeout(() => controller.abort(), 1500);
 
       const res = await fetch(url, {
         method: 'GET',
@@ -303,7 +303,7 @@ export async function discoverHikvisionDevice(forceRescan = false): Promise<{
   }
 
   try {
-    const sadpFoundIps = await scanViaSADP(1200);
+    const sadpFoundIps = await scanViaSADP(1500);
     for (const sadpIp of sadpFoundIps) {
       if (await checkIpIsHikvision(sadpIp)) {
         cachedHikIp = sadpIp;
@@ -374,7 +374,7 @@ export async function getHikvisionDeviceInfo(): Promise<HikvisionDeviceInfo> {
   try {
     process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 1200);
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
 
     const firstRes = await fetch(url, { method: 'GET', signal: controller.signal }).catch(() => null);
     clearTimeout(timeoutId);
@@ -396,7 +396,7 @@ export async function getHikvisionDeviceInfo(): Promise<HikvisionDeviceInfo> {
       const digestHeader = buildDigestHeader('GET', uri, wwwAuth, HIK_USER, HIK_PASS);
 
       const controller2 = new AbortController();
-      const timeoutId2 = setTimeout(() => controller2.abort(), 1200);
+      const timeoutId2 = setTimeout(() => controller2.abort(), 3000);
 
       const secondRes = await fetch(url, {
         method: 'GET',

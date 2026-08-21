@@ -176,16 +176,16 @@ export default function TerminalDashboard() {
     return () => clearInterval(clockInterval);
   }, []);
 
-  // Status check timeout safety (Max 2.0s timeout fallback)
+  // Status check timeout safety (15.0s timer limit)
   useEffect(() => {
     const timeoutTimer = setTimeout(() => {
       setIsCheckingStatus((prev) => {
         if (prev) {
-          addLog(`WARN: Device status probe timed out (2000ms). Setting fallback OFFLINE status.`);
+          addLog(`WARN: Device status probe timer reached 15 sec limit. Setting fallback status.`);
         }
         return false;
       });
-    }, 2000);
+    }, 15000);
 
     return () => clearTimeout(timeoutTimer);
   }, []);
