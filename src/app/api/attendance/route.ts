@@ -6,7 +6,6 @@ import {
   getHikvisionDeviceInfo
 } from '@/lib/hikvision';
 
-
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
 
@@ -15,12 +14,15 @@ let lastAutoSyncTime = 0;
 export async function GET() {
   try {
     const nowTs = Date.now();
-    // 1. Background Parallel Sync: Machine -> Supabase Cloud DB & Google Sheets (every 2.5s)
-    if (nowTs - lastAutoSyncTime > 2500) {
+    
+    // 1. Synchronous / Throttle Machine Sync: Ensure fresh punches are fetched on load
+    if (nowTs - lastAutoSyncTime > 2000) {
       lastAutoSyncTime = nowTs;
-      syncHikvisionAttendance().catch((err) => {
-        console.warn('Background auto-sync exception:', err.message);
-      });
+      try {
+        await syncHikvisionAttendance();
+      } catch (syncErr: any) {
+        console.warn('Initial sync warning:', syncErr.message);
+      }
     }
 
     const supabase = getSupabaseClient();
@@ -28,14 +30,14 @@ export async function GET() {
 
     const now = new Date();
     
-    // Format Today's Date in IST (Asia/Kolkata)
+    // Format Today's Date in IST (Asia/Kolkata) - Multiple format variations
     const formatterShort = new Intl.DateTimeFormat('en-GB', {
       timeZone: 'Asia/Kolkata',
       day: '2-digit',
       month: '2-digit',
       year: '2-digit',
     });
-    const todayStr = formatterShort.format(now); // e.g. "20/08/26"
+    const todayStr = formatterShort.format(now); // e.g. "21/08/26"
 
     const formatterFull = new Intl.DateTimeFormat('en-GB', {
       timeZone: 'Asia/Kolkata',
@@ -43,11 +45,16 @@ export async function GET() {
       month: '2-digit',
       year: 'numeric',
     });
-    const todayStrFull = formatterFull.format(now); // e.g. "20/08/2026"
+    const todayStrFull = formatterFull.format(now); // e.g. "21/08/2026"
+
+    const YYYY = now.getFullYear();
+    const MM = String(now.getMonth() + 1).padStart(2, '0');
+    const DD = String(now.getDate()).padStart(2, '0');
+    const todayStrIso = `${YYYY}-${MM}-${DD}`; // e.g. "2026-08-21"
 
     let records: any[] = [];
 
-    // 2. Pure Supabase Cloud DB Query: UI displays data directly from Supabase Cloud
+    // 2. Query Supabase Cloud DB for records
     if (supabase) {
       try {
         const { data: supaData, error: supaErr } = await supabase
@@ -76,11 +83,15 @@ export async function GET() {
       return (b.entry_id || '').localeCompare(a.entry_id || '');
     });
 
-    // Filter today's records if available, otherwise return all historical records
+    // Filter today's records matching any date format variation
     const todayRecords = records.filter(
-      (r) => r.attendance_date === todayStr || r.attendance_date === todayStrFull
+      (r) =>
+        r.attendance_date === todayStr ||
+        r.attendance_date === todayStrFull ||
+        r.attendance_date === todayStrIso
     );
 
+    // Prefer today's records if present, otherwise return all historical records
     const finalRecords = todayRecords.length > 0 ? todayRecords : records;
 
     return NextResponse.json({
