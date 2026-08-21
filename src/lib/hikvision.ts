@@ -484,7 +484,7 @@ export async function fetchHikvisionEvents(): Promise<{ data: any; deviceIp: str
   const uri = '/ISAPI/AccessControl/AcsEvent?format=json';
   const url = `https://${hikIp}${uri}`;
 
-  // Fetch ALL events (Removed minor: 38 filter so ALL employee verification types are returned!)
+  // Fetch events for Access Control (Major 5)
   const postData = JSON.stringify({
     AcsEventCond: {
       searchID: '1',
@@ -574,8 +574,21 @@ export async function syncHikvisionAttendance() {
           maxSerial = serial;
         }
 
-        // Accept all Major 5 Access Control events regardless of minor verification code!
         if (event.major !== 5) continue;
+
+        // STRICT FINGERPRINT VERIFICATION FILTER
+        // Minor codes for Fingerprint: 38 (Card/Fingerprint Pass), 7 (Fingerprint Verification Pass), 113, 164
+        // Or event verifyMode / currentVerifyMode indicates fingerprint
+        const isFingerprint =
+          event.minor === 38 ||
+          event.minor === 7 ||
+          event.minor === 113 ||
+          event.minor === 164 ||
+          (event.currentVerifyMode && String(event.currentVerifyMode).toLowerCase().includes('finger')) ||
+          (event.verifyMode && String(event.verifyMode).toLowerCase().includes('finger')) ||
+          event.currentVerifyMode === 2;
+
+        if (!isFingerprint) continue;
 
         const employeeNo = (
           event.employeeNoString ||
@@ -636,7 +649,7 @@ export async function syncHikvisionAttendance() {
     }
 
     if (newRecords.length > 0) {
-      console.log(`⚡ DETECTED ${newRecords.length} NEW PUNCH(ES) FROM MACHINE! Updating Supabase Cloud & Sheets...`);
+      console.log(`⚡ DETECTED ${newRecords.length} NEW FINGERPRINT PUNCH(ES) FROM MACHINE! Updating Supabase Cloud & Sheets...`);
 
       // Direct Instant Insert into Supabase Cloud Table (No local file backup)
       if (supabase) {
@@ -654,7 +667,7 @@ export async function syncHikvisionAttendance() {
           if (sErr) {
             console.error('Supabase Cloud insert error:', sErr.message);
           } else {
-            console.log(`✅ Supabase Cloud updated with ${newRecords.length} new punch record(s)!`);
+            console.log(`✅ Supabase Cloud updated with ${newRecords.length} new fingerprint punch record(s)!`);
           }
         } catch (sErr: any) {
           console.error('Supabase insert exception:', sErr.message);
@@ -669,7 +682,7 @@ export async function syncHikvisionAttendance() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(newRecords),
           });
-          console.log(`✅ Google Sheets updated with ${newRecords.length} new punch record(s)!`);
+          console.log(`✅ Google Sheets updated with ${newRecords.length} new fingerprint punch record(s)!`);
         } catch (gErr: any) {
           console.error('Google Sheets sync error:', gErr.message);
         }

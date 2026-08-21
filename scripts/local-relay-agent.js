@@ -166,6 +166,18 @@ async function initRelay() {
         for (const event of data.AcsEvent.InfoList) {
           if (event.major !== 5) continue;
 
+          // STRICT FINGERPRINT FILTER
+          const isFingerprint =
+            event.minor === 38 ||
+            event.minor === 7 ||
+            event.minor === 113 ||
+            event.minor === 164 ||
+            (event.currentVerifyMode && String(event.currentVerifyMode).toLowerCase().includes('finger')) ||
+            (event.verifyMode && String(event.verifyMode).toLowerCase().includes('finger')) ||
+            event.currentVerifyMode === 2;
+
+          if (!isFingerprint) continue;
+
           const serial = parseInt(event.serialNo || '0', 10);
           const employeeNo = (
             event.employeeNoString ||
@@ -208,13 +220,13 @@ async function initRelay() {
 
       if (newRecords.length > 0) {
         const time = new Date().toLocaleTimeString();
-        console.log(`[${time}] ⚡ NEW PUNCH DETECTED FROM LOCAL MACHINE! Inserting ${newRecords.length} record(s) to Supabase Cloud DB...`);
+        console.log(`[${time}] ⚡ NEW FINGERPRINT PUNCH DETECTED FROM LOCAL MACHINE! Inserting ${newRecords.length} record(s) to Supabase Cloud DB...`);
 
         const { error } = await supabase.from('attendance_log').insert(newRecords);
         if (error) {
           console.error(`[${time}] ❌ Supabase Insert Error:`, error.message);
         } else {
-          console.log(`[${time}] ✅ Successfully pushed ${newRecords.length} record(s) to Supabase Cloud!`);
+          console.log(`[${time}] ✅ Successfully pushed ${newRecords.length} fingerprint record(s) to Supabase Cloud!`);
         }
 
         if (GOOGLE_SCRIPT_URL) {
