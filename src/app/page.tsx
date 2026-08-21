@@ -315,28 +315,37 @@ export default function TerminalDashboard() {
               
               <span className={isLight ? 'text-black font-bold' : 'text-slate-600'}>|</span>
               
-              {/* Light / Dark Mode Toggle Button */}
-              <button
+              {/* Interactive Toggle Switch Slider Component */}
+              <div 
+                className="flex items-center gap-2 cursor-pointer select-none group" 
                 onClick={() => setTheme(isLight ? 'DARK' : 'LIGHT')}
-                className={`flex items-center gap-1 px-2.5 py-0.5 rounded border-2 text-[11px] font-bold transition-all shadow-sm active:scale-95 ${
-                  isLight
-                    ? 'bg-white text-slate-900 border-black hover:bg-slate-100'
-                    : 'bg-slate-900 text-sky-300 border-slate-700 hover:bg-slate-800'
-                }`}
                 title="Toggle Light / Dark Theme"
               >
-                {isLight ? (
-                  <>
-                    <Sun className="w-3 h-3 text-amber-500" />
-                    <span>LIGHT</span>
-                  </>
-                ) : (
-                  <>
-                    <Moon className="w-3 h-3 text-sky-400" />
-                    <span>DARK</span>
-                  </>
-                )}
-              </button>
+                <span className={`text-[10px] font-bold ${isLight ? 'text-slate-900' : 'text-slate-400'}`}>
+                  {isLight ? 'LIGHT' : 'DARK'}
+                </span>
+                <div
+                  role="switch"
+                  aria-checked={isLight}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 transition-colors duration-300 ease-in-out ${
+                    isLight ? 'bg-amber-100 border-black' : 'bg-slate-900 border-slate-700'
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full shadow-md transition duration-300 ease-in-out flex items-center justify-center ${
+                      isLight
+                        ? 'translate-x-5 bg-white border border-black text-amber-500'
+                        : 'translate-x-0 bg-slate-950 border border-slate-700 text-sky-400'
+                    }`}
+                  >
+                    {isLight ? (
+                      <Sun className="w-3 h-3 text-amber-500" />
+                    ) : (
+                      <Moon className="w-3 h-3 text-sky-400" />
+                    )}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
 
