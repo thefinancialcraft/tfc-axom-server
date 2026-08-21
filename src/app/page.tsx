@@ -234,21 +234,31 @@ export default function TerminalDashboard() {
     return () => clearTimeout(timeoutTimer);
   }, []);
 
+  // Initial Load Status Check
   useEffect(() => {
     addLog(`INIT: Axom Biometric Daemon initialized.`);
     addLog(`NETWORK: Auto-detecting local LAN/Wi-Fi subnets...`);
     fetchAttendanceData();
     setLastSyncTime(new Date().toLocaleTimeString());
+  }, [fetchAttendanceData]);
 
+  // Polling ONLY runs after status check completes AND machine is CONNECTED!
+  useEffect(() => {
     let interval: any;
-    if (isAutoPoll) {
+
+    if (!isCheckingStatus && deviceInfo && deviceInfo.isConnected && isAutoPoll) {
+      addLog(`POLLING: Machine connected [${deviceInfo.ip}]. Auto-poll active (every 2.0s).`);
       interval = setInterval(() => {
         fetchAttendanceData();
       }, 2000);
+    } else if (!isCheckingStatus && (!deviceInfo || !deviceInfo.isConnected)) {
+      addLog(`POLLING: Paused because machine is currently OFFLINE.`);
     }
 
-    return () => clearInterval(interval);
-  }, [fetchAttendanceData, isAutoPoll]);
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isCheckingStatus, deviceInfo, isAutoPoll, fetchAttendanceData]);
 
   const filteredRecords = records.filter(
     (item) =>
