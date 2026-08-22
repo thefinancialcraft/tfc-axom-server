@@ -135,6 +135,32 @@ export async function GET(request: Request) {
             attendance_time: formatTo12Hour(sRow.attendance_time),
           }));
         }
+
+        // Fallback: If date filter returned 0 records, load ALL historical records from Supabase Cloud DB so table is never empty
+        if (records.length === 0 && filterDateValues.length > 0) {
+          let from = 0;
+          const step = 1000;
+          let fallbackRows: any[] = [];
+          while (true) {
+            const { data: chunk } = await supabase
+              .from('attendance_log')
+              .select('*')
+              .order('id', { ascending: false })
+              .range(from, from + step - 1);
+
+            if (!chunk || chunk.length === 0) break;
+            fallbackRows = fallbackRows.concat(chunk);
+            if (chunk.length < step) break;
+            from += step;
+          }
+
+          if (fallbackRows.length > 0) {
+            records = fallbackRows.map((sRow) => ({
+              ...sRow,
+              attendance_time: formatTo12Hour(sRow.attendance_time),
+            }));
+          }
+        }
       } catch (sErr: any) {
         console.warn('Supabase fetch notice:', sErr.message);
       }
