@@ -722,6 +722,31 @@ export async function syncHikvisionAttendance() {
           } else {
             console.log(`✅ Supabase Cloud synced/updated ${newRecords.length} record(s) on entry_id!`);
           }
+
+          // Auto-onboard / auto-register new employee in public.employees table if not already present
+          const uniqueEmpsMap = new Map<string, string>();
+          newRecords.forEach((r) => {
+            if (r.employee_id) {
+              uniqueEmpsMap.set(r.employee_id, r.user_name || r.employee_id);
+            }
+          });
+
+          if (uniqueEmpsMap.size > 0) {
+            const empUpsertPayload = Array.from(uniqueEmpsMap.entries()).map(([empId, empName]) => ({
+              employeeId: empId,
+              employeeName: empName,
+              employeeType: 'BIOMETRIC',
+              is_active: true,
+              updated_at: new Date().toISOString(),
+            }));
+
+            for (const emp of empUpsertPayload) {
+              await supabase
+                .from('employees')
+                .upsert(emp, { onConflict: 'employeeId', ignoreDuplicates: true });
+            }
+            console.log(`✅ Auto-onboarded ${empUpsertPayload.length} employee(s) into public.employees table!`);
+          }
         } catch (sErr: any) {
           console.error('Supabase insert exception:', sErr.message);
         }

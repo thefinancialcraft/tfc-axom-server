@@ -50,3 +50,45 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #0284c7;
 }
+
+/* Animated Cyber Neon Hero Text */
+@keyframes textShimmer {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.animate-cyber-shimmer {
+  background: linear-gradient(90deg, #10b981, #38bdf8, #f59e0b, #10b981);
+  background-size: 200% auto;
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: textShimmer 4s linear infinite;
+}
+
+/* Terminal Blinking Cursor Typography */
+@keyframes cursorBlink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+.terminal-cursor {
+  display: inline-block;
+  width: 8px;
+  height: 14px;
+  background-color: #10b981;
+  vertical-align: middle;
+  margin-left: 2px;
+  animation: cursorBlink 0.8s infinite;
+}
