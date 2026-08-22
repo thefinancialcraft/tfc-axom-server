@@ -1,25 +1,33 @@
 import { NextResponse } from 'next/server';
-import { getSupabaseClient, formatTo12Hour } from '@/lib/hikvision';
+import { syncHikvisionAttendance, getSupabaseClient, formatTo12Hour } from '@/lib/hikvision';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const supabase = getSupabaseClient();
-    if (!supabase) {
-      return NextResponse.json({ success: false, error: 'Supabase client unavailable' }, { status: 500 });
+    const { searchParams } = new URL(request.url);
+    const deep = searchParams.get('deep') === 'true';
+
+    // 1. Attempt Machine Sync (if on office Wi-Fi / IP 192.168.1.63 accessible)
+    const machineResult = await syncHikvisionAttendance(deep);
+
+    // 2. If Machine is Connected, return Machine Sync result directly
+    if (machineResult.success && machineResult.isConnected) {
+      return NextResponse.json(machineResult);
     }
 
-    const { data: rows, error } = await supabase
+    // 3. If Machine is Offline / Inaccessible (outside office Wi-Fi), accurately return isConnected: false & load Supabase Cloud DB
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      return NextResponse.json({ success: false, isConnected: false, records: [] });
+    }
+
+    const { data: rows } = await supabase
       .from('attendance_log')
       .select('*')
       .order('id', { ascending: false })
       .limit(1000);
-
-    if (error) {
-      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
-    }
 
     const records = (rows || []).map((r) => ({
       ...r,
@@ -28,12 +36,12 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      isConnected: true,
+      isConnected: false, // Accurately returns isConnected: false when outside office Wi-Fi!
       records,
       newRecordsInserted: 0,
       deviceIp: '192.168.1.63',
       deviceInfo: {
-        isConnected: true,
+        isConnected: false,
         ip: '192.168.1.63',
         model: 'DS-K1T320EFWX',
         deviceName: 'Access Controller',
@@ -43,10 +51,10 @@ export async function GET() {
       },
     });
   } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    return NextResponse.json({ success: false, isConnected: false, error: err.message, records: [] });
   }
 }
 
-export async function POST() {
-  return GET();
+export async function POST(request: Request) {
+  return GET(request);
 }
