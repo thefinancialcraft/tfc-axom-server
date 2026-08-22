@@ -73,22 +73,28 @@ body {
   animation: textShimmer 4s linear infinite;
 }
 
-/* Terminal Blinking Cursor Typography */
-@keyframes cursorBlink {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0;
-  }
+/* Terminal Cursor Animation */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
 }
 
 .terminal-cursor {
   display: inline-block;
-  width: 8px;
-  height: 14px;
+  width: 0.55em;
+  height: 1.1em;
   background-color: #10b981;
   vertical-align: middle;
   margin-left: 2px;
-  animation: cursorBlink 0.8s infinite;
+  animation: blink 1s step-start infinite;
+}
+
+/* LED Indicator Sharp Blink Animation (No Fade) */
+@keyframes sharpBlink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+.animate-sharp-blink {
+  animation: sharpBlink 1s infinite;
 }

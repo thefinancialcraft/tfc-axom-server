@@ -701,103 +701,100 @@ export default function TerminalDashboard() {
   const isLight = theme === 'LIGHT';
 
   return (
-    <div className={`min-h-screen p-1.5 sm:p-4 md:p-6 font-mono transition-colors duration-300 selection:bg-emerald-500 selection:text-black w-full max-w-full overflow-x-hidden ${
+    <div className={`min-h-screen p-0 sm:p-4 md:p-6 font-mono transition-colors duration-300 selection:bg-emerald-500 selection:text-black w-full max-w-full overflow-x-hidden ${
       isLight ? 'bg-white text-slate-900' : 'bg-[#05080f] text-sky-400'
     }`}>
-      <div className="max-w-7xl mx-auto space-y-3 sm:space-y-4 w-full max-w-full overflow-hidden">
+      <div className="max-w-7xl mx-auto space-y-0 sm:space-y-4 w-full max-w-full overflow-hidden">
         
         {/* Terminal Main Container Window */}
-        <div className={`terminal-window rounded-lg border-2 overflow-hidden transition-colors duration-300 w-full max-w-full ${
+        <div className={`terminal-window rounded-none sm:rounded-lg border-0 sm:border-2 overflow-hidden transition-colors duration-300 w-full max-w-full ${
           isLight
-            ? 'bg-white border-2 border-black shadow-xl'
-            : 'bg-[#090d16]/95 border-slate-700/80 shadow-2xl shadow-sky-500/10'
+            ? 'bg-white sm:border-2 border-black shadow-none sm:shadow-xl'
+            : 'bg-[#090d16]/95 sm:border-slate-700/80 shadow-none sm:shadow-2xl shadow-sky-500/10'
         }`}>
           
           {/* Terminal Window Header Bar */}
-          <div className={`terminal-header px-2.5 sm:px-4 py-2 sm:py-2.5 border-b-2 flex flex-wrap items-center justify-between transition-colors gap-1.5 ${
+          <div className={`terminal-header px-2.5 sm:px-4 py-2 sm:py-2.5 border-b-2 flex items-center justify-between transition-colors gap-2 w-full max-w-full overflow-hidden select-none ${
             isLight ? 'bg-white border-b-2 border-black text-slate-900' : 'bg-[#0f172a] border-slate-700 text-slate-300'
           }`}>
-            <div className="flex items-center gap-1.5 sm:gap-2 truncate max-w-[200px] sm:max-w-none">
-              <span className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-red-500/90 inline-block shrink-0 shadow-sm shadow-red-500/50"></span>
-              <span className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-yellow-500/90 inline-block shrink-0 shadow-sm shadow-yellow-500/50"></span>
-              <span className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-emerald-500/90 inline-block shrink-0 shadow-sm shadow-emerald-500/50"></span>
-              <span className={`ml-1 sm:ml-2 text-[10px] sm:text-xs font-bold flex items-center gap-1 sm:gap-1.5 truncate ${
-                isLight ? 'text-slate-900' : 'text-slate-300'
+            {/* Left Brand Title */}
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 min-w-0">
+              <span className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-red-500/90 inline-block shrink-0"></span>
+              <span className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-yellow-500/90 inline-block shrink-0"></span>
+              <span className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-emerald-500/90 inline-block shrink-0"></span>
+              <span className={`ml-0.5 sm:ml-1.5 text-[11px] sm:text-xs font-bold flex items-center gap-1 shrink-0 ${
+                isLight ? 'text-slate-900' : 'text-slate-200'
               }`}>
-                <Terminal className={`w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0 ${isLight ? 'text-emerald-600' : 'text-emerald-500'}`} />
-                <span className="truncate">tfc-biometric-monitor</span>
+                <Terminal className={`w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0 ${isLight ? 'text-emerald-600' : 'text-emerald-400'}`} />
+                <span className="truncate max-w-[100px] xs:max-w-[140px] sm:max-w-none">tfc-biometric-monitor</span>
               </span>
             </div>
 
-            <div className="flex items-center gap-1.5 sm:gap-3 text-[10px] sm:text-[11px]">
+            {/* Right Status Controls */}
+            <div className="flex items-center gap-1.5 sm:gap-3 text-[10px] sm:text-[11px] shrink-0">
               {isCheckingStatus ? (
-                <span className={`inline-flex items-center gap-1 font-bold px-1.5 sm:px-2.5 py-0.5 rounded border-2 shadow-sm text-[9px] sm:text-[11px] ${
-                  isLight ? 'bg-white text-amber-600 border-black' : 'text-amber-400 bg-amber-950/80 border-amber-700/80'
-                }`}>
-                  <RotateCw className={`w-2.5 h-2.5 sm:w-3 sm:h-3 animate-spin ${isLight ? 'text-amber-600' : 'text-amber-400'}`} />
-                  <span>FETCHING...</span>
+                <span className={`inline-flex items-center justify-center p-1 sm:px-2.5 sm:py-0.5 rounded sm:border shadow-sm text-[9px] sm:text-[11px] ${
+                  isLight ? 'bg-transparent sm:bg-white text-amber-600 sm:border-black' : 'text-amber-400 sm:bg-amber-950/80 sm:border-amber-700/80'
+                }`} title="FETCHING DEVICE STATUS...">
+                  <RotateCw className="w-2.5 h-2.5 sm:w-3 sm:h-3 animate-spin shrink-0" />
+                  <span className="hidden sm:inline ml-1 font-bold">FETCHING...</span>
                 </span>
               ) : deviceInfo && deviceInfo.isConnected ? (
-                <span className={`inline-flex items-center gap-1 font-bold px-1.5 sm:px-2.5 py-0.5 rounded border-2 shadow-sm text-[9px] sm:text-[11px] ${
-                  isLight ? 'bg-white text-emerald-600 border-black' : 'text-emerald-400 bg-emerald-950/80 border-emerald-700/80'
-                }`}>
-                  <span className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full animate-ping ${isLight ? 'bg-emerald-600' : 'bg-emerald-400'}`}></span>
-                  <span>ONLINE [{deviceInfo.model || 'DS-K1T320EFWX'}]</span>
+                <span className={`inline-flex items-center gap-1 font-bold p-1 sm:px-2 sm:py-0.5 rounded sm:border shadow-sm text-[9px] sm:text-[11px] ${
+                  isLight ? 'bg-transparent sm:bg-white text-emerald-600 sm:border-black' : 'text-emerald-400 sm:bg-emerald-950/80 sm:border-emerald-700/80'
+                }`} title={`ONLINE [${deviceInfo.model || 'DS-K1T320EFWX'}]`}>
+                  <span className="w-2.5 h-2.5 rounded-full animate-sharp-blink bg-emerald-500 shrink-0"></span>
+                  <span className="hidden sm:inline">ONLINE [{deviceInfo.model || 'DS-K1T320EFWX'}]</span>
                 </span>
               ) : (
-                <span className={`inline-flex items-center gap-1 font-bold px-1.5 sm:px-2.5 py-0.5 rounded border-2 shadow-sm text-[9px] sm:text-[11px] ${
-                  isLight ? 'bg-white text-red-600 border-black' : 'text-red-400 bg-red-950/80 border-red-700/80'
-                }`}>
-                  <span className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full animate-ping ${isLight ? 'bg-red-600' : 'bg-red-500'}`}></span>
-                  <span>OFFLINE</span>
+                <span className={`inline-flex items-center gap-1 font-bold p-1 sm:px-2 sm:py-0.5 rounded sm:border shadow-sm text-[9px] sm:text-[11px] ${
+                  isLight ? 'bg-transparent sm:bg-white text-red-600 sm:border-black' : 'text-red-400 sm:bg-red-950/80 sm:border-red-700/80'
+                }`} title="OFFLINE">
+                  <span className="w-2.5 h-2.5 rounded-full animate-sharp-blink bg-red-500 shrink-0"></span>
+                  <span className="hidden sm:inline">OFFLINE</span>
                 </span>
               )}
               
-              <span className={isLight ? 'text-black font-bold' : 'text-slate-600'}>|</span>
-              <span className={`hidden sm:inline ${isLight ? 'text-slate-900 font-bold' : 'text-slate-400'}`}>TTY1</span>
-              <span className={`hidden sm:inline ${isLight ? 'text-black font-bold' : 'text-slate-600'}`}>|</span>
+              <span className={`text-slate-600 ${isLight ? 'text-black font-bold' : ''}`}>|</span>
               
               {/* Interactive Toggle Switch Slider Component */}
               <div 
-                className="flex items-center gap-1.5 cursor-pointer select-none group" 
+                className="flex items-center gap-1 cursor-pointer select-none group" 
                 onClick={handleThemeToggle}
                 title="Toggle Light / Dark Theme"
               >
-                <span className={`text-[9px] sm:text-[10px] font-bold ${isLight ? 'text-slate-900' : 'text-slate-400'}`}>
-                  {isLight ? 'LIGHT' : 'DARK'}
-                </span>
                 <div
                   role="switch"
                   aria-checked={isLight}
-                  className={`relative inline-flex h-5 w-9 sm:h-6 sm:w-11 flex-shrink-0 cursor-pointer rounded-full border-2 transition-colors duration-300 ease-in-out ${
+                  className={`relative inline-flex h-4 w-8 sm:h-5 sm:w-10 flex-shrink-0 cursor-pointer rounded-full border transition-colors duration-300 ease-in-out ${
                     isLight ? 'bg-amber-100 border-black' : 'bg-slate-900 border-slate-700'
                   }`}
                 >
                   <span
-                    className={`pointer-events-none inline-block h-4 w-4 sm:h-5 sm:w-5 transform rounded-full shadow-md transition duration-300 ease-in-out flex items-center justify-center ${
+                    className={`pointer-events-none inline-block h-3.5 w-3.5 sm:h-4 sm:w-4 transform rounded-full shadow-md transition duration-300 ease-in-out flex items-center justify-center ${
                       isLight
-                        ? 'translate-x-4 sm:translate-x-5 bg-white border border-black text-amber-500'
+                        ? 'translate-x-3.5 sm:translate-x-4.5 bg-white border border-black text-amber-500'
                         : 'translate-x-0 bg-slate-950 border border-slate-700 text-sky-400'
                     }`}
                   >
                     {isLight ? (
-                      <Sun className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-amber-500" />
+                      <Sun className="w-2 h-2 sm:w-2.5 sm:h-2.5 text-amber-500" />
                     ) : (
-                      <Moon className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-sky-400" />
+                      <Moon className="w-2 h-2 sm:w-2.5 sm:h-2.5 text-sky-400" />
                     )}
                   </span>
                 </div>
               </div>
 
-              <span className={isLight ? 'text-black font-bold' : 'text-slate-600'}>|</span>
+              <span className={`text-slate-600 ${isLight ? 'text-black font-bold' : ''}`}>|</span>
 
               {/* Standalone Settings Gear Icon Link */}
               <Link
                 href="/onboard"
                 title="Onboard & Active Employee Settings"
-                className="p-1 cursor-pointer transition-transform hover:rotate-90 duration-300 active:scale-95 flex items-center justify-center"
+                className="p-0.5 cursor-pointer transition-transform hover:rotate-90 duration-300 active:scale-95 flex items-center justify-center shrink-0"
               >
-                <Settings className={`w-4 h-4 sm:w-4.5 sm:h-4.5 ${isLight ? 'text-slate-800 hover:text-emerald-600' : 'text-emerald-400 hover:text-emerald-300'}`} />
+                <Settings className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${isLight ? 'text-slate-800 hover:text-emerald-600' : 'text-emerald-400 hover:text-emerald-300'}`} />
               </Link>
             </div>
           </div>
