@@ -578,7 +578,8 @@ export async function fetchHikvisionEvents(deep: boolean = false): Promise<{ dat
   const hikIp = discovery.ip;
 
   const uri = '/ISAPI/AccessControl/AcsEvent?format=json';
-  const url = `https://${hikIp}${uri}`;
+  const protocol = cachedWorkingProtocol || 'http';
+  const url = `${protocol}://${hikIp}${uri}`;
 
   const now = new Date();
   const daysBack = deep ? 30 : 3;

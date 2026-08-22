@@ -662,11 +662,13 @@ export default function TerminalDashboard() {
           // STEP 2: Machine Connected -> Execute Historical Deep Search Scan
           addLog(`⚡ RECONNECTED: Machine connection restored! Performing deep search (500+ records scan)...`);
           try {
+            let loadedCount = 0;
             const deepRes = await fetchWithClosedLog('/api/sync?deep=true').catch(() => null);
             if (deepRes && deepRes.ok) {
               const deepData = await deepRes.json();
               if (deepData && deepData.success && Array.isArray(deepData.records) && deepData.records.length > 0) {
                 if (!isMounted) return;
+                loadedCount = deepData.records.length;
                 setAllRecords((prev) => {
                   const map = new Map<string, RecordItem>();
                   prev.forEach((r) => map.set(r.entry_id, r));
@@ -679,8 +681,15 @@ export default function TerminalDashboard() {
                 addLog(`✅ RECONNECT_CATCHUP: Deep search complete! Loaded ${deepData.records.length} records.`);
               }
             }
+
+            // Fallback for Vercel Cloud Deployments: If server deep search returned 0 records, load from Supabase Cloud DB
+            if (loadedCount === 0) {
+              addLog(`DATABASE: Loading attendance records from Supabase Cloud DB...`);
+              await fetchAttendanceData();
+            }
           } catch (deepErr: any) {
             addLog(`WARN: Deep search notice - ${deepErr.message}`);
+            await fetchAttendanceData();
           }
         } else {
           addLog(`WARN: Machine probe failed after 5 retries. Falling back to Supabase Cloud DB.`);
@@ -793,6 +802,7 @@ export default function TerminalDashboard() {
                     macAddress: 'a4:d5:c2:1c:4d:83',
                     firmwareVersion: 'V3.5.2',
                   });
+                  await fetchAttendanceData();
                 } else {
                   wasOfflineRef.current = true;
                   addLog(`WARN: Machine disconnected. Data preserved in cache.`);
