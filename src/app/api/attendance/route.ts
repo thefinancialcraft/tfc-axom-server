@@ -17,17 +17,16 @@ export async function GET(request: Request) {
     const dateParam = searchParams.get('date'); // e.g. "TODAY", "ALL", "2026-08-21"
 
     const nowTs = Date.now();
-    
-    // 1. Non-blocking Machine Sync: trigger in background so Supabase fetch returns INSTANTLY
-    if (nowTs - lastAutoSyncTime > 3000) {
+    const supabase = getSupabaseClient();
+    const deviceInfo = await getHikvisionDeviceInfo();
+
+    // 1. Machine API Sync: Only trigger background sync if machine is connected
+    if (deviceInfo && deviceInfo.isConnected && nowTs - lastAutoSyncTime > 3000) {
       lastAutoSyncTime = nowTs;
       syncHikvisionAttendance().catch((syncErr) => {
         console.warn('Background sync warning:', syncErr.message);
       });
     }
-
-    const supabase = getSupabaseClient();
-    const deviceInfo = await getHikvisionDeviceInfo();
 
     const now = new Date();
     

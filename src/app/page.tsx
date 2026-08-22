@@ -187,6 +187,23 @@ export default function TerminalDashboard() {
   const [inactiveEmpIds, setInactiveEmpIds] = useState<Set<string>>(new Set());
   const [activeEmployeesList, setActiveEmployeesList] = useState<{ employeeId: string; employeeName: string }[]>([]);
 
+  // Offline Auto-Scan 5-Retry & 1-Hour Pause Engine Refs/State
+  const offlineRetryCountRef = useRef<number>(0);
+  const offlinePausedUntilRef = useRef<number | null>(null);
+  const lastScanTimestampRef = useRef<number>(0);
+  const [offlinePauseState, setOfflinePauseState] = useState<{ isPaused: boolean; minsLeft: number; pauseUntilStr: string }>({
+    isPaused: false,
+    minsLeft: 0,
+    pauseUntilStr: '',
+  });
+
+  const resetOfflineRetryState = useCallback(() => {
+    offlineRetryCountRef.current = 0;
+    offlinePausedUntilRef.current = null;
+    lastScanTimestampRef.current = 0;
+    setOfflinePauseState({ isPaused: false, minsLeft: 0, pauseUntilStr: '' });
+  }, []);
+
   const fetchActiveEmployees = useCallback(async () => {
     try {
       const res = await fetch('/api/employees');
@@ -381,6 +398,7 @@ export default function TerminalDashboard() {
   };
 
   const scanLocalNetwork = async () => {
+    resetOfflineRetryState();
     setIsScanning(true);
     addLog(`SCANNING: Executing SADP UDP multicast & subnet discovery scan...`);
     try {
@@ -433,6 +451,7 @@ export default function TerminalDashboard() {
   };
 
   const handleAutoPollToggle = () => {
+    resetOfflineRetryState();
     const nextState = !isAutoPoll;
     setIsAutoPoll(nextState);
     addLog(`DAEMON: Auto-polling loop toggled [${nextState ? 'ACTIVE' : 'PAUSED'}]`);
@@ -480,7 +499,7 @@ export default function TerminalDashboard() {
     setLastSyncTime(new Date().toLocaleTimeString());
   }, [fetchAttendanceData, addLog, deviceIp]);
 
-  // Dynamic Auto Polling & Offline Auto-Scan Engine (2s Online Polling, 10s Offline Scanning)
+  // Dynamic Auto Polling & Offline Auto-Scan Engine (2s Online Polling, 10s Offline Scanning with 5-retry limit & 1hr pause)
   useEffect(() => {
     let interval: any;
 
@@ -488,21 +507,66 @@ export default function TerminalDashboard() {
       const isOnline = deviceInfo && deviceInfo.isConnected;
 
       if (isOnline) {
+        if (offlineRetryCountRef.current !== 0 || offlinePausedUntilRef.current !== null) {
+          resetOfflineRetryState();
+        }
         addLog(`POLLING_HEARTBEAT: Machine connected [${deviceInfo.ip}]. Polling active (every 2.0s).`);
         interval = setInterval(() => {
-          addLog(`TICK: 2.0s poll tick triggered.`);
           fetchAttendanceData();
         }, 2000);
       } else {
         const targetIp = deviceInfo?.ip || deviceIp;
-        addLog(`OFFLINE_SCAN: Machine offline [${targetIp}]. Auto-scanning network every 10.0s for reconnection...`);
 
-        interval = setInterval(async () => {
-          addLog(`OFFLINE_RETRY: Probing machine [${targetIp}] (10.0s scan tick)...`);
-          try {
-            fetch('/api/scan').catch(() => null);
-          } catch {}
-          fetchAttendanceData();
+        const runOfflineScanStep = async () => {
+          const now = Date.now();
+
+          // 1. Check if 1-hour pause is currently active
+          if (offlinePausedUntilRef.current && now < offlinePausedUntilRef.current) {
+            const minsLeft = Math.ceil((offlinePausedUntilRef.current - now) / 60000);
+            const timeStr = new Date(offlinePausedUntilRef.current).toLocaleTimeString();
+            setOfflinePauseState({ isPaused: true, minsLeft, pauseUntilStr: timeStr });
+            return;
+          }
+
+          // 2. Check if 1-hour pause has expired -> Reset counter & resume
+          if (offlinePausedUntilRef.current && now >= offlinePausedUntilRef.current) {
+            offlinePausedUntilRef.current = null;
+            offlineRetryCountRef.current = 0;
+            lastScanTimestampRef.current = 0;
+            setOfflinePauseState({ isPaused: false, minsLeft: 0, pauseUntilStr: '' });
+            addLog(`OFFLINE_RESUME: 1-hour pause expired. Resuming auto-scan cycle...`);
+          }
+
+          // 3. Throttle safeguard: Ensure at least 9.5s between offline retry attempts
+          if (lastScanTimestampRef.current > 0 && now - lastScanTimestampRef.current < 9500) {
+            return;
+          }
+          lastScanTimestampRef.current = now;
+
+          // 4. Perform scan attempt if within 5-retry limit
+          if (offlineRetryCountRef.current < 5) {
+            offlineRetryCountRef.current += 1;
+            const currentAttempt = offlineRetryCountRef.current;
+            addLog(`OFFLINE_SCAN (${currentAttempt}/5): Machine offline [${targetIp}]. Probing connection (10.0s tick)...`);
+            try {
+              fetch('/api/scan').catch(() => null);
+            } catch {}
+            fetchAttendanceData();
+          } else {
+            // 5. 5 retries failed -> Trigger 1-hour pause
+            const pauseUntilMs = now + 3600000; // 1 hour = 3,600,000 ms
+            offlinePausedUntilRef.current = pauseUntilMs;
+            const timeStr = new Date(pauseUntilMs).toLocaleTimeString();
+            setOfflinePauseState({ isPaused: true, minsLeft: 60, pauseUntilStr: timeStr });
+            addLog(`OFFLINE_PAUSED: Max retries (5/5) reached. Machine non-responsive. Pausing auto-scan for 1 hour (until ${timeStr}). Click ./scan to retry.`);
+          }
+        };
+
+        // Run immediate scan step when going offline
+        runOfflineScanStep();
+
+        interval = setInterval(() => {
+          runOfflineScanStep();
         }, 10000);
       }
     }
@@ -510,7 +574,7 @@ export default function TerminalDashboard() {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [isCheckingStatus, deviceInfo, isAutoPoll, fetchAttendanceData, addLog, deviceIp]);
+  }, [isCheckingStatus, deviceInfo, isAutoPoll, fetchAttendanceData, addLog, deviceIp, resetOfflineRetryState]);
 
   const isRecordMatchingDate = (recordDateStr: string, targetIso: string) => {
     if (!recordDateStr) return false;
@@ -702,20 +766,20 @@ export default function TerminalDashboard() {
 
   return (
     <div className={`min-h-screen p-0 sm:p-4 md:p-6 font-mono transition-colors duration-300 selection:bg-emerald-500 selection:text-black w-full max-w-full overflow-x-hidden ${
-      isLight ? 'bg-white text-slate-900' : 'bg-[#05080f] text-sky-400'
+      isLight ? 'bg-[#f1f5f9] text-slate-900' : 'bg-[#05080f] text-sky-400'
     }`}>
       <div className="max-w-7xl mx-auto space-y-0 sm:space-y-4 w-full max-w-full overflow-hidden">
         
         {/* Terminal Main Container Window */}
         <div className={`terminal-window rounded-none sm:rounded-lg border-0 sm:border-2 overflow-hidden transition-colors duration-300 w-full max-w-full ${
           isLight
-            ? 'bg-white sm:border-2 border-black shadow-none sm:shadow-xl'
+            ? 'bg-slate-50 sm:border-2 border-slate-300 shadow-none'
             : 'bg-[#090d16]/95 sm:border-slate-700/80 shadow-none sm:shadow-2xl shadow-sky-500/10'
         }`}>
           
           {/* Terminal Window Header Bar */}
           <div className={`terminal-header px-2.5 sm:px-4 py-2 sm:py-2.5 border-b-2 flex items-center justify-between transition-colors gap-2 w-full max-w-full overflow-hidden select-none ${
-            isLight ? 'bg-white border-b-2 border-black text-slate-900' : 'bg-[#0f172a] border-slate-700 text-slate-300'
+            isLight ? 'bg-slate-200/80 border-b-2 border-slate-300 text-slate-900' : 'bg-[#0f172a] border-slate-700 text-slate-300'
           }`}>
             {/* Left Brand Title */}
             <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 min-w-0">
@@ -725,7 +789,7 @@ export default function TerminalDashboard() {
               <span className={`ml-0.5 sm:ml-1.5 text-[11px] sm:text-xs font-bold flex items-center gap-1 shrink-0 ${
                 isLight ? 'text-slate-900' : 'text-slate-200'
               }`}>
-                <Terminal className={`w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0 ${isLight ? 'text-emerald-600' : 'text-emerald-400'}`} />
+                <Terminal className={`w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0 ${isLight ? 'text-emerald-700' : 'text-emerald-400'}`} />
                 <span className="truncate max-w-[100px] xs:max-w-[140px] sm:max-w-none">tfc-biometric-monitor</span>
               </span>
             </div>
@@ -733,29 +797,29 @@ export default function TerminalDashboard() {
             {/* Right Status Controls */}
             <div className="flex items-center gap-1.5 sm:gap-3 text-[10px] sm:text-[11px] shrink-0">
               {isCheckingStatus ? (
-                <span className={`inline-flex items-center justify-center p-1 sm:px-2.5 sm:py-0.5 rounded sm:border shadow-sm text-[9px] sm:text-[11px] ${
-                  isLight ? 'bg-transparent sm:bg-white text-amber-600 sm:border-black' : 'text-amber-400 sm:bg-amber-950/80 sm:border-amber-700/80'
+                <span className={`inline-flex items-center justify-center p-1 sm:px-2.5 sm:py-0.5 rounded sm:border shadow-none text-[9px] sm:text-[11px] ${
+                  isLight ? 'bg-transparent sm:bg-white text-amber-700 sm:border-slate-300' : 'text-amber-400 sm:bg-amber-950/80 sm:border-amber-700/80'
                 }`} title="FETCHING DEVICE STATUS...">
                   <RotateCw className="w-2.5 h-2.5 sm:w-3 sm:h-3 animate-spin shrink-0" />
                   <span className="hidden sm:inline ml-1 font-bold">FETCHING...</span>
                 </span>
               ) : deviceInfo && deviceInfo.isConnected ? (
-                <span className={`inline-flex items-center gap-1 font-bold p-1 sm:px-2 sm:py-0.5 rounded sm:border shadow-sm text-[9px] sm:text-[11px] ${
-                  isLight ? 'bg-transparent sm:bg-white text-emerald-600 sm:border-black' : 'text-emerald-400 sm:bg-emerald-950/80 sm:border-emerald-700/80'
+                <span className={`inline-flex items-center gap-1 font-bold p-1 sm:px-2 sm:py-0.5 rounded sm:border shadow-none text-[9px] sm:text-[11px] ${
+                  isLight ? 'bg-transparent sm:bg-white text-emerald-700 sm:border-slate-300' : 'text-emerald-400 sm:bg-emerald-950/80 sm:border-emerald-700/80'
                 }`} title={`ONLINE [${deviceInfo.model || 'DS-K1T320EFWX'}]`}>
                   <span className="w-2.5 h-2.5 rounded-full animate-sharp-blink bg-emerald-500 shrink-0"></span>
                   <span className="hidden sm:inline">ONLINE [{deviceInfo.model || 'DS-K1T320EFWX'}]</span>
                 </span>
               ) : (
-                <span className={`inline-flex items-center gap-1 font-bold p-1 sm:px-2 sm:py-0.5 rounded sm:border shadow-sm text-[9px] sm:text-[11px] ${
-                  isLight ? 'bg-transparent sm:bg-white text-red-600 sm:border-black' : 'text-red-400 sm:bg-red-950/80 sm:border-red-700/80'
+                <span className={`inline-flex items-center gap-1 font-bold p-1 sm:px-2 sm:py-0.5 rounded sm:border shadow-none text-[9px] sm:text-[11px] ${
+                  isLight ? 'bg-transparent sm:bg-white text-red-700 sm:border-slate-300' : 'text-red-400 sm:bg-red-950/80 sm:border-red-700/80'
                 }`} title="OFFLINE">
                   <span className="w-2.5 h-2.5 rounded-full animate-sharp-blink bg-red-500 shrink-0"></span>
                   <span className="hidden sm:inline">OFFLINE</span>
                 </span>
               )}
               
-              <span className={`text-slate-600 ${isLight ? 'text-black font-bold' : ''}`}>|</span>
+              <span className={`text-slate-400 ${isLight ? 'text-slate-400 font-bold' : ''}`}>|</span>
               
               {/* Interactive Toggle Switch Slider Component */}
               <div 
@@ -767,13 +831,13 @@ export default function TerminalDashboard() {
                   role="switch"
                   aria-checked={isLight}
                   className={`relative inline-flex h-4 w-8 sm:h-5 sm:w-10 flex-shrink-0 cursor-pointer rounded-full border transition-colors duration-300 ease-in-out ${
-                    isLight ? 'bg-amber-100 border-black' : 'bg-slate-900 border-slate-700'
+                    isLight ? 'bg-amber-100 border-slate-300' : 'bg-slate-900 border-slate-700'
                   }`}
                 >
                   <span
                     className={`pointer-events-none inline-block h-3.5 w-3.5 sm:h-4 sm:w-4 transform rounded-full shadow-md transition duration-300 ease-in-out flex items-center justify-center ${
                       isLight
-                        ? 'translate-x-3.5 sm:translate-x-4.5 bg-white border border-black text-amber-500'
+                        ? 'translate-x-3.5 sm:translate-x-4.5 bg-white border border-slate-300 text-amber-500'
                         : 'translate-x-0 bg-slate-950 border border-slate-700 text-sky-400'
                     }`}
                   >
@@ -786,7 +850,7 @@ export default function TerminalDashboard() {
                 </div>
               </div>
 
-              <span className={`text-slate-600 ${isLight ? 'text-black font-bold' : ''}`}>|</span>
+              <span className={`text-slate-400 ${isLight ? 'text-slate-400 font-bold' : ''}`}>|</span>
 
               {/* Standalone Settings Gear Icon Link */}
               <Link
@@ -794,7 +858,7 @@ export default function TerminalDashboard() {
                 title="Onboard & Active Employee Settings"
                 className="p-0.5 cursor-pointer transition-transform hover:rotate-90 duration-300 active:scale-95 flex items-center justify-center shrink-0"
               >
-                <Settings className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${isLight ? 'text-slate-800 hover:text-emerald-600' : 'text-emerald-400 hover:text-emerald-300'}`} />
+                <Settings className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${isLight ? 'text-slate-800 hover:text-emerald-700' : 'text-emerald-400 hover:text-emerald-300'}`} />
               </Link>
             </div>
           </div>
@@ -814,7 +878,7 @@ export default function TerminalDashboard() {
 
               <div className="hidden md:flex items-center gap-2 shrink-0">
                 <span className={`text-xs font-bold px-2.5 py-1 rounded border-2 ${
-                  isLight ? 'bg-emerald-50 text-emerald-900 border-black' : 'bg-emerald-950/80 text-emerald-400 border-emerald-700/80'
+                  isLight ? 'bg-emerald-50 text-emerald-900 border-slate-300' : 'bg-emerald-950/80 text-emerald-400 border-emerald-700/80'
                 }`}>
                   v2.0 LIVE
                 </span>
@@ -824,58 +888,58 @@ export default function TerminalDashboard() {
             {/* System Diagnostic Specs Strip */}
             <div className="grid grid-cols-2 sm:flex sm:flex-row sm:items-center justify-between gap-2 sm:gap-4 py-1 text-[10px] sm:text-xs w-full">
               <div className="font-bold flex items-center gap-1 min-w-0">
-                <ShieldCheck className={`w-3.5 h-3.5 shrink-0 ${isLight ? 'text-emerald-600' : 'text-emerald-400'}`} />
-                <span className={`truncate ${isLight ? 'text-emerald-600' : 'text-emerald-400'}`}>
+                <ShieldCheck className={`w-3.5 h-3.5 shrink-0 ${isLight ? 'text-emerald-700' : 'text-emerald-400'}`} />
+                <span className={`truncate ${isLight ? 'text-emerald-700' : 'text-emerald-400'}`}>
                   MODEL: {deviceInfo?.model || 'DS-K1T320EFWX'}
                 </span>
               </div>
               
               <div className="font-bold flex items-center gap-1 min-w-0 justify-end sm:justify-start">
-                <Wifi className={`w-3 h-3 animate-pulse shrink-0 ${isLight ? 'text-sky-600' : 'text-sky-400'}`} />
-                <span className={`truncate ${isLight ? 'text-sky-600' : 'text-sky-300'}`}>
+                <Wifi className={`w-3 h-3 animate-pulse shrink-0 ${isLight ? 'text-sky-700' : 'text-sky-400'}`} />
+                <span className={`truncate ${isLight ? 'text-sky-700' : 'text-sky-300'}`}>
                   IP: {deviceIp}
                 </span>
               </div>
 
               <div className="font-bold flex items-center gap-1 min-w-0">
-                <Cpu className={`w-3 h-3 shrink-0 ${isLight ? 'text-amber-600' : 'text-amber-400'}`} />
-                <span className={`truncate ${isLight ? 'text-amber-600' : 'text-amber-400'}`}>
+                <Cpu className={`w-3 h-3 shrink-0 ${isLight ? 'text-amber-700' : 'text-amber-400'}`} />
+                <span className={`truncate ${isLight ? 'text-amber-700' : 'text-amber-400'}`}>
                   FW: {deviceInfo?.firmwareVersion || 'V3.5.2'}
                 </span>
               </div>
               
               <div className="font-bold min-w-0 text-right sm:text-left">
-                DATE: <span className={isLight ? 'text-emerald-600 font-bold' : 'text-emerald-300'}>{todayDate || 'FETCHING...'}</span>
+                DATE: <span className={isLight ? 'text-emerald-700 font-bold' : 'text-emerald-300'}>{todayDate || 'FETCHING...'}</span>
               </div>
             </div>
 
             {/* Quick Stats Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">
               <div className={`p-2.5 sm:p-3 border-2 rounded shadow-none ${
-                isLight ? 'bg-white border-black text-slate-900' : 'bg-[#0c1220] border-slate-700/90'
+                isLight ? 'bg-white border-slate-300 text-slate-900' : 'bg-[#0c1220] border-slate-700/90'
               }`}>
-                <div className={`text-[9px] sm:text-[10px] uppercase tracking-wider font-bold ${isLight ? 'text-slate-700' : 'text-slate-400'}`}>TOTAL ACTIVE USERS</div>
-                <div className={`text-xl sm:text-2xl font-bold mt-1 text-emerald-400 ${isLight ? 'text-emerald-600' : 'text-glow-green'}`}>
+                <div className={`text-[9px] sm:text-[10px] uppercase tracking-wider font-bold ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>TOTAL ACTIVE USERS</div>
+                <div className={`text-xl sm:text-2xl font-bold mt-1 text-emerald-400 ${isLight ? 'text-emerald-700' : 'text-glow-green'}`}>
                   {totalActiveUsers}
                 </div>
                 <div className={`text-[9px] sm:text-[10px] font-medium truncate ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Active Onboarded Users</div>
               </div>
 
               <div className={`p-2.5 sm:p-3 border-2 rounded shadow-none ${
-                isLight ? 'bg-white border-black text-slate-900' : 'bg-[#0c1220] border-slate-700/90'
+                isLight ? 'bg-white border-slate-300 text-slate-900' : 'bg-[#0c1220] border-slate-700/90'
               }`}>
-                <div className={`text-[9px] sm:text-[10px] uppercase tracking-wider font-bold ${isLight ? 'text-slate-700' : 'text-slate-400'}`}>PRESENT EMPLOYEES</div>
-                <div className={`text-xl sm:text-2xl font-bold mt-1 text-sky-400 ${isLight ? 'text-sky-600' : 'text-glow-cyan'}`}>
+                <div className={`text-[9px] sm:text-[10px] uppercase tracking-wider font-bold ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>PRESENT EMPLOYEES</div>
+                <div className={`text-xl sm:text-2xl font-bold mt-1 text-sky-400 ${isLight ? 'text-sky-700' : 'text-glow-cyan'}`}>
                   {presentUsersCount}
                 </div>
                 <div className={`text-[9px] sm:text-[10px] font-medium truncate ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Punched in Filter</div>
               </div>
 
               <div className={`p-2.5 sm:p-3 border-2 rounded shadow-none ${
-                isLight ? 'bg-white border-black text-slate-900' : 'bg-[#0c1220] border-slate-700/90'
+                isLight ? 'bg-white border-slate-300 text-slate-900' : 'bg-[#0c1220] border-slate-700/90'
               }`}>
-                <div className={`text-[9px] sm:text-[10px] uppercase tracking-wider font-bold ${isLight ? 'text-slate-700' : 'text-slate-400'}`}>ATTENDANCE RATE</div>
-                <div className={`text-xl sm:text-2xl font-bold mt-1 text-amber-400 flex items-center gap-1 ${isLight ? 'text-amber-600' : 'text-glow-amber'}`}>
+                <div className={`text-[9px] sm:text-[10px] uppercase tracking-wider font-bold ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>ATTENDANCE RATE</div>
+                <div className={`text-xl sm:text-2xl font-bold mt-1 text-amber-400 flex items-center gap-1 ${isLight ? 'text-amber-700' : 'text-glow-amber'}`}>
                   <TrendingUp className="w-4 h-4 shrink-0" />
                   <span>{attendanceRate}%</span>
                 </div>
@@ -883,18 +947,18 @@ export default function TerminalDashboard() {
               </div>
 
               <div className={`p-2.5 sm:p-3 border-2 rounded shadow-none ${
-                isLight ? 'bg-white border-black text-slate-900' : 'bg-[#0c1220] border-slate-700/90'
+                isLight ? 'bg-white border-slate-300 text-slate-900' : 'bg-[#0c1220] border-slate-700/90'
               }`}>
-                <div className={`text-[9px] sm:text-[10px] uppercase tracking-wider font-bold ${isLight ? 'text-slate-700' : 'text-slate-400'}`}>TOTAL PUNCHES</div>
-                <div className={`text-xl sm:text-2xl font-bold mt-1 ${isLight ? 'text-sky-600' : 'text-sky-400 text-glow-cyan'}`}>{filteredRecords.length}</div>
+                <div className={`text-[9px] sm:text-[10px] uppercase tracking-wider font-bold ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>TOTAL PUNCHES</div>
+                <div className={`text-xl sm:text-2xl font-bold mt-1 ${isLight ? 'text-sky-700' : 'text-sky-400 text-glow-cyan'}`}>{filteredRecords.length}</div>
                 <div className={`text-[9px] sm:text-[10px] font-medium truncate ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Raw Log Entries</div>
               </div>
 
               <div className={`p-2.5 sm:p-3 border-2 rounded shadow-none col-span-2 sm:col-span-1 ${
-                isLight ? 'bg-white border-black text-slate-900' : 'bg-[#0c1220] border-slate-700/90'
+                isLight ? 'bg-white border-slate-300 text-slate-900' : 'bg-[#0c1220] border-slate-700/90'
               }`}>
-                <div className={`text-[9px] sm:text-[10px] uppercase tracking-wider font-bold ${isLight ? 'text-slate-700' : 'text-slate-400'}`}>LIVE IST CLOCK</div>
-                <div className={`text-xs sm:text-base font-bold mt-1 truncate flex items-center gap-1 ${isLight ? 'text-amber-600' : 'text-amber-400 text-glow-amber'}`}>
+                <div className={`text-[9px] sm:text-[10px] uppercase tracking-wider font-bold ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>LIVE IST CLOCK</div>
+                <div className={`text-xs sm:text-base font-bold mt-1 truncate flex items-center gap-1 ${isLight ? 'text-amber-700' : 'text-amber-400 text-glow-amber'}`}>
                   <Clock className="w-3.5 h-3.5 shrink-0 animate-pulse" />
                   <span className="truncate">{currentTime || '00:00:00 AM'}</span>
                 </div>
@@ -904,16 +968,16 @@ export default function TerminalDashboard() {
 
             {/* CLI Command Bar & Controls */}
             <div className={`border-2 p-2 sm:p-3 rounded space-y-2 sm:space-y-3 shadow-none ${
-              isLight ? 'bg-white border-black text-slate-900' : 'bg-[#0c121e] border-slate-700/90'
+              isLight ? 'bg-[#f8fafc] border-slate-300 text-slate-900' : 'bg-[#0c121e] border-slate-700/90'
             }`}>
               <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2 sm:gap-3">
                 
                 {/* Search Bar Input */}
                 <div className={`flex-1 flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded border-2 ${
-                  isLight ? 'bg-white border-black focus-within:border-black' : 'bg-slate-950 border-slate-700 focus-within:border-sky-400'
+                  isLight ? 'bg-white border-slate-300 focus-within:border-slate-400 shadow-none' : 'bg-slate-950 border-slate-700 focus-within:border-sky-400'
                 }`}>
                   <Search className={`w-3.5 h-3.5 shrink-0 ${isLight ? 'text-slate-700' : 'text-slate-400'}`} />
-                  <span className={`font-bold text-[10px] sm:text-xs select-none shrink-0 hidden sm:inline ${isLight ? 'text-emerald-600' : 'text-emerald-400'}`}>
+                  <span className={`font-bold text-[10px] sm:text-xs select-none shrink-0 hidden sm:inline ${isLight ? 'text-emerald-700' : 'text-emerald-400'}`}>
                     root@axom-server:~# grep=
                   </span>
                   <input
@@ -928,7 +992,7 @@ export default function TerminalDashboard() {
                   {search && (
                     <button
                       onClick={() => handleSearchChange('')}
-                      className="text-[10px] text-slate-400 hover:text-slate-200 px-1 font-bold shrink-0"
+                      className="text-[10px] text-slate-400 hover:text-slate-600 px-1 font-bold shrink-0"
                       title="Clear Search"
                     >
                       ✕
@@ -943,11 +1007,11 @@ export default function TerminalDashboard() {
                     disabled={isScanning}
                     className={`flex items-center justify-center gap-1 px-2 sm:px-3 py-1.5 rounded border-2 text-[10px] sm:text-xs font-bold transition-all disabled:opacity-50 active:scale-95 whitespace-nowrap ${
                       isLight
-                        ? 'bg-white border-black text-sky-700 hover:bg-sky-50'
+                        ? 'bg-white border-slate-300 text-sky-800 hover:bg-slate-100'
                         : 'bg-sky-950/80 border-sky-500/50 text-sky-300 hover:bg-sky-900/60'
                     }`}
                   >
-                    <Radar className={`w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0 ${isScanning ? 'animate-spin text-amber-500' : isLight ? 'text-sky-600' : 'text-sky-400'}`} />
+                    <Radar className={`w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0 ${isScanning ? 'animate-spin text-amber-500' : isLight ? 'text-sky-700' : 'text-sky-400'}`} />
                     <span>{isScanning ? 'Scan...' : './scan'}</span>
                   </button>
 
@@ -956,7 +1020,7 @@ export default function TerminalDashboard() {
                     disabled={isSyncing}
                     className={`flex items-center justify-center gap-1 px-2 sm:px-3 py-1.5 rounded border-2 text-[10px] sm:text-xs font-bold transition-all disabled:opacity-50 active:scale-95 whitespace-nowrap ${
                       isLight
-                        ? 'bg-white border-black text-emerald-700 hover:bg-emerald-50'
+                        ? 'bg-white border-slate-300 text-emerald-800 hover:bg-slate-100'
                         : 'bg-emerald-950/80 border-emerald-500/50 text-emerald-400 hover:bg-emerald-900/60'
                     }`}
                   >
@@ -967,14 +1031,23 @@ export default function TerminalDashboard() {
                   <button
                     onClick={handleAutoPollToggle}
                     className={`flex items-center justify-center px-2 sm:px-3 py-1.5 rounded border-2 text-[10px] sm:text-xs font-bold transition-all whitespace-nowrap ${
-                      isAutoPoll
+                      offlinePauseState.isPaused
                         ? isLight
-                          ? 'bg-white border-black text-slate-800'
+                          ? 'bg-amber-100 border-amber-400 text-amber-900 animate-pulse'
+                          : 'bg-amber-950 border-amber-600 text-amber-300 animate-pulse'
+                        : isAutoPoll
+                        ? isLight
+                          ? 'bg-white border-slate-300 text-slate-800 hover:bg-slate-100'
                           : 'bg-slate-900 border-slate-700 text-slate-300'
                         : 'bg-red-950 border-red-800 text-red-400'
                     }`}
+                    title={offlinePauseState.isPaused ? `Auto-scan paused until ${offlinePauseState.pauseUntilStr}. Click to reset and retry.` : ''}
                   >
-                    {isAutoPoll ? 'POLL: ON' : 'POLL: OFF'}
+                    {offlinePauseState.isPaused
+                      ? `PAUSED (${offlinePauseState.minsLeft}m)`
+                      : isAutoPoll
+                      ? 'POLL: ON'
+                      : 'POLL: OFF'}
                   </button>
                 </div>
               </div>
@@ -982,7 +1055,7 @@ export default function TerminalDashboard() {
 
             {/* View Mode & Date Filter Toggle Header */}
             <div className={`flex flex-col md:flex-row items-stretch md:items-center justify-between px-2 sm:px-4 py-2 border-2 rounded-t border-b-0 text-xs gap-2.5 sm:gap-2 ${
-              isLight ? 'bg-white border-black text-slate-900 font-bold' : 'bg-[#0b101c] border-slate-700/90 text-slate-300'
+              isLight ? 'bg-slate-200/80 border-slate-300 text-slate-900 font-bold' : 'bg-[#0b101c] border-slate-700/90 text-slate-300'
             }`}>
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 w-full md:w-auto">
                 
@@ -993,10 +1066,10 @@ export default function TerminalDashboard() {
                     className={`flex items-center justify-center gap-1 px-2.5 sm:px-3 py-1.5 sm:py-1 rounded font-bold transition-all text-[11px] sm:text-xs ${
                       viewMode === 'SUMMARY'
                         ? isLight
-                          ? 'bg-emerald-600 text-white border-2 border-black'
+                          ? 'bg-emerald-600 text-white border-2 border-emerald-700'
                           : 'bg-emerald-500 text-black shadow-md shadow-emerald-500/20 border border-emerald-400'
                         : isLight
-                        ? 'bg-white text-slate-900 border-2 border-black hover:bg-slate-100'
+                        ? 'bg-white text-slate-900 border-2 border-slate-300 hover:bg-slate-100'
                         : 'bg-slate-900 text-slate-400 border-2 border-slate-700 hover:text-slate-200'
                     }`}
                   >
@@ -1009,10 +1082,10 @@ export default function TerminalDashboard() {
                     className={`flex items-center justify-center gap-1 px-2.5 sm:px-3 py-1.5 sm:py-1 rounded font-bold transition-all text-[11px] sm:text-xs ${
                       viewMode === 'RAW'
                         ? isLight
-                          ? 'bg-sky-600 text-white border-2 border-black'
+                          ? 'bg-sky-600 text-white border-2 border-sky-700'
                           : 'bg-sky-500 text-black shadow-md shadow-sky-500/20 border border-sky-400'
                         : isLight
-                        ? 'bg-white text-slate-900 border-2 border-black hover:bg-slate-100'
+                        ? 'bg-white text-slate-900 border-2 border-slate-300 hover:bg-slate-100'
                         : 'bg-slate-900 text-slate-400 border-2 border-slate-700 hover:text-slate-200'
                     }`}
                   >
@@ -1021,7 +1094,7 @@ export default function TerminalDashboard() {
                   </button>
                 </div>
 
-                <span className="text-slate-500 hidden sm:inline">|</span>
+                <span className="text-slate-400 hidden sm:inline">|</span>
 
                 {/* Date Navigator Bar: PREV | DATE PICKER | NEXT */}
                 <div className="flex items-center justify-between gap-1.5 w-full sm:w-auto">
@@ -1031,7 +1104,7 @@ export default function TerminalDashboard() {
                     title="Previous Day"
                     className={`flex items-center justify-center gap-0.5 sm:gap-1 px-2 sm:px-2.5 py-1.5 sm:py-1 rounded border-2 font-bold text-[10px] sm:text-xs transition-all active:scale-95 shrink-0 ${
                       isLight
-                        ? 'bg-white border-black text-slate-900 hover:bg-slate-100'
+                        ? 'bg-white border-slate-300 text-slate-900 hover:bg-slate-100'
                         : 'bg-slate-900 border-slate-700 text-sky-400 hover:bg-sky-950/60 hover:border-sky-500/50'
                     }`}
                   >
@@ -1045,7 +1118,7 @@ export default function TerminalDashboard() {
                       onClick={() => setIsCalendarOpen(!isCalendarOpen)}
                       className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 sm:py-1 rounded border-2 transition-all font-mono font-bold text-[10px] sm:text-xs active:scale-95 w-full sm:w-auto truncate ${
                         isLight
-                          ? 'bg-emerald-50 text-emerald-900 hover:bg-emerald-100 border-black'
+                          ? 'bg-emerald-50 text-emerald-900 hover:bg-emerald-100 border-slate-300'
                           : 'bg-emerald-950/80 text-emerald-400 hover:bg-emerald-900/60 border-emerald-500/50 shadow-md shadow-emerald-950/40'
                       }`}
                     >
@@ -1058,7 +1131,7 @@ export default function TerminalDashboard() {
                     {isCalendarOpen && (
                       <div className={`absolute left-0 sm:left-auto right-0 sm:right-auto mt-2 z-50 p-2.5 sm:p-3 rounded-lg border-2 shadow-2xl w-[calc(100vw-2rem)] sm:w-80 max-w-sm transition-all font-mono ${
                         isLight
-                          ? 'bg-white border-black text-slate-900 shadow-slate-400/50'
+                          ? 'bg-white border-slate-300 text-slate-900 shadow-none'
                           : 'bg-[#090f1f] border-sky-500/60 text-sky-200 shadow-sky-950/80'
                       }`}>
                         {/* Banner Guide for Range Picking */}
@@ -1188,7 +1261,7 @@ export default function TerminalDashboard() {
                     title="Next Day"
                     className={`flex items-center justify-center gap-0.5 sm:gap-1 px-2 sm:px-2.5 py-1.5 sm:py-1 rounded border-2 font-bold text-[10px] sm:text-xs transition-all active:scale-95 shrink-0 ${
                       isLight
-                        ? 'bg-white border-black text-slate-900 hover:bg-slate-100'
+                        ? 'bg-white border-slate-300 text-slate-900 hover:bg-slate-100'
                         : 'bg-slate-900 border-slate-700 text-sky-400 hover:bg-sky-950/60 hover:border-sky-500/50'
                     }`}
                   >
@@ -1207,7 +1280,7 @@ export default function TerminalDashboard() {
 
             {/* Terminal Table Display */}
             <div className={`border-2 rounded-b overflow-hidden ${
-              isLight ? 'bg-white border-black text-slate-900' : 'bg-[#070b14] border-slate-700/90'
+              isLight ? 'bg-white border-slate-300 text-slate-900 shadow-none' : 'bg-[#070b14] border-slate-700/90'
             }`}>
               
               {viewMode === 'SUMMARY' ? (
@@ -1215,33 +1288,33 @@ export default function TerminalDashboard() {
                 <div className="overflow-x-auto touch-manipulation scrollbar-thin">
                   <table className="w-full text-left text-xs font-mono border-collapse whitespace-nowrap">
                     <thead className={`border-b-2 select-none ${
-                      isLight ? 'bg-white text-slate-900 border-black font-bold' : 'bg-[#090e1a] text-slate-300 border-slate-700'
+                      isLight ? 'bg-slate-100 text-slate-900 border-slate-300 font-bold' : 'bg-[#090e1a] text-slate-300 border-slate-700'
                     }`}>
                       <tr>
-                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-black text-amber-600' : 'border-slate-700 text-amber-400'}`}>#</th>
-                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-black' : 'border-slate-700'}`}>EMPLOYEE_ID</th>
-                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-black' : 'border-slate-700'}`}>USER_NAME</th>
-                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-black' : 'border-slate-700'}`}>ATTENDANCE_DATE</th>
-                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-black text-emerald-600' : 'border-slate-700 text-emerald-400'}`}>
+                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-slate-300 text-amber-700' : 'border-slate-700 text-amber-400'}`}>#</th>
+                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-slate-300' : 'border-slate-700'}`}>EMPLOYEE_ID</th>
+                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-slate-300' : 'border-slate-700'}`}>USER_NAME</th>
+                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-slate-300' : 'border-slate-700'}`}>ATTENDANCE_DATE</th>
+                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-slate-300 text-emerald-700' : 'border-slate-700 text-emerald-400'}`}>
                           <span className="flex items-center gap-1">
                             <LogIn className="w-3.5 h-3.5" /> CHECK-IN (FIRST ENTRY)
                           </span>
                         </th>
-                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-black text-sky-600' : 'border-slate-700 text-sky-400'}`}>
+                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-slate-300 text-sky-700' : 'border-slate-700 text-sky-400'}`}>
                           <span className="flex items-center gap-1">
                             <LogOut className="w-3.5 h-3.5" /> CHECK-OUT (LAST ENTRY)
                           </span>
                         </th>
-                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-black' : 'border-slate-700'}`}>PUNCH_COUNT</th>
+                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-slate-300' : 'border-slate-700'}`}>PUNCH_COUNT</th>
                         <th className="py-2 sm:py-2.5 px-2 sm:px-3 font-bold">STATUS</th>
                       </tr>
                     </thead>
                     <tbody className={`divide-y border-t ${
-                      isLight ? 'border-black divide-black' : 'border-slate-700/80 divide-slate-800'
+                      isLight ? 'border-slate-300 divide-slate-200' : 'border-slate-700/80 divide-slate-800'
                     }`}>
                       {loading ? (
                         <tr>
-                          <td colSpan={8} className={`py-8 text-center border ${isLight ? 'border-black text-slate-600 font-bold' : 'border-slate-800 text-slate-500'}`}>
+                          <td colSpan={8} className={`py-8 text-center border ${isLight ? 'border-slate-200 text-slate-600 font-bold' : 'border-slate-800 text-slate-500'}`}>
                             <div className="flex items-center justify-center gap-2">
                               <RotateCw className="w-4 h-4 animate-spin text-emerald-500" />
                               <span className="font-mono">EXEC: fetching attendance records for [{formatCustomDateLabel(startDate, endDate)}]...</span>
@@ -1250,7 +1323,7 @@ export default function TerminalDashboard() {
                         </tr>
                       ) : groupedList.length === 0 ? (
                         <tr>
-                          <td colSpan={8} className={`py-8 text-center border ${isLight ? 'border-black text-slate-600 font-bold' : 'border-slate-800 text-slate-500'}`}>
+                          <td colSpan={8} className={`py-8 text-center border ${isLight ? 'border-slate-200 text-slate-600 font-bold' : 'border-slate-800 text-slate-500'}`}>
                             [NO ATTENDANCE RECORDS FOUND FOR {formatCustomDateLabel(startDate, endDate)}]
                           </td>
                         </tr>
@@ -1259,15 +1332,15 @@ export default function TerminalDashboard() {
                           <tr
                             key={`${item.employee_id}_${item.attendance_date}`}
                             className={`border-b transition-colors group ${
-                              isLight ? 'bg-white hover:bg-slate-100 border-black text-slate-900' : 'hover:bg-sky-950/40 border-slate-800/80'
+                              isLight ? 'bg-white hover:bg-slate-100/70 border-slate-200 text-slate-900' : 'hover:bg-sky-950/40 border-slate-800/80'
                             }`}
                           >
                             <td className={`py-2.5 px-3 border-r font-bold ${
-                              isLight ? 'border-black text-amber-600' : 'border-slate-800/80 text-amber-400'
+                              isLight ? 'border-slate-200 text-amber-700' : 'border-slate-800/80 text-amber-400'
                             }`}>
                               #{idx + 1}
                             </td>
-                            <td className={`py-2.5 px-3 border-r ${isLight ? 'border-black' : 'border-slate-800/80'}`}>
+                            <td className={`py-2.5 px-3 border-r ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}>
                               <span className={`font-bold px-1.5 py-0.5 rounded border ${
                                 isLight
                                   ? 'text-emerald-700 bg-emerald-50 border-emerald-400'
@@ -1277,16 +1350,16 @@ export default function TerminalDashboard() {
                               </span>
                             </td>
                             <td className={`py-2.5 px-3 border-r font-bold ${
-                              isLight ? 'border-black text-slate-900' : 'border-slate-800/80 text-white group-hover:text-sky-300'
+                              isLight ? 'border-slate-200 text-slate-900' : 'border-slate-800/80 text-white group-hover:text-sky-300'
                             }`}>
                               {item.user_name}
                             </td>
                             <td className={`py-2.5 px-3 border-r font-medium ${
-                              isLight ? 'border-black text-slate-700' : 'border-slate-800/80 text-slate-300'
+                              isLight ? 'border-slate-200 text-slate-700' : 'border-slate-800/80 text-slate-300'
                             }`}>
                               {item.attendance_date}
                             </td>
-                            <td className={`py-2.5 px-3 border-r ${isLight ? 'border-black' : 'border-slate-800/80'}`}>
+                            <td className={`py-2.5 px-3 border-r ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}>
                               {item.has_punched ? (
                                 <span className={`font-bold px-2 py-1 rounded border inline-flex items-center gap-1 ${
                                   isLight
@@ -1305,7 +1378,7 @@ export default function TerminalDashboard() {
                               )}
                             </td>
 
-                            <td className={`py-2.5 px-3 border-r ${isLight ? 'border-black' : 'border-slate-800/80'}`}>
+                            <td className={`py-2.5 px-3 border-r ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}>
                               {item.has_punched ? (
                                 item.check_out_time !== '--' ? (
                                   <span className={`font-bold px-2 py-1 rounded border inline-flex items-center gap-1 ${
@@ -1335,9 +1408,9 @@ export default function TerminalDashboard() {
                             <td className={`py-2.5 px-3 border-r font-bold ${
                               item.has_punched
                                 ? isLight
-                                  ? 'border-black text-amber-600'
+                                  ? 'border-slate-200 text-amber-700'
                                   : 'border-slate-800/80 text-amber-400'
-                                : 'border-slate-800/80 text-slate-500 font-normal'
+                                : 'border-slate-200 text-slate-500 font-normal'
                             }`}>
                               {item.total_punches} {item.total_punches === 1 ? 'Punch' : 'Punches'}
                             </td>
@@ -1376,25 +1449,25 @@ export default function TerminalDashboard() {
                 <div className="overflow-x-auto touch-manipulation scrollbar-thin">
                   <table className="w-full text-left text-xs font-mono border-collapse whitespace-nowrap">
                     <thead className={`border-b-2 select-none ${
-                      isLight ? 'bg-white text-slate-900 border-black font-bold' : 'bg-[#090e1a] text-slate-300 border-slate-700'
+                      isLight ? 'bg-slate-100 text-slate-900 border-slate-300 font-bold' : 'bg-[#090e1a] text-slate-300 border-slate-700'
                     }`}>
                       <tr>
-                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-black text-amber-600' : 'border-slate-700 text-amber-400'}`}>#</th>
-                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-black' : 'border-slate-700'}`}>SERIAL</th>
-                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-black' : 'border-slate-700'}`}>EMPLOYEE_ID</th>
-                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-black' : 'border-slate-700'}`}>USER_NAME</th>
-                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-black' : 'border-slate-700'}`}>DATE</th>
-                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-black' : 'border-slate-700'}`}>PUNCH_TIME</th>
-                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-black' : 'border-slate-700'}`}>ATN_TOKEN</th>
+                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-slate-300 text-amber-700' : 'border-slate-700 text-amber-400'}`}>#</th>
+                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-slate-300' : 'border-slate-700'}`}>SERIAL</th>
+                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-slate-300' : 'border-slate-700'}`}>EMPLOYEE_ID</th>
+                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-slate-300' : 'border-slate-700'}`}>USER_NAME</th>
+                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-slate-300' : 'border-slate-700'}`}>DATE</th>
+                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-slate-300' : 'border-slate-700'}`}>PUNCH_TIME</th>
+                        <th className={`py-2 sm:py-2.5 px-2 sm:px-3 border-r-2 font-bold ${isLight ? 'border-slate-300' : 'border-slate-700'}`}>ATN_TOKEN</th>
                         <th className="py-2 sm:py-2.5 px-2 sm:px-3 font-bold">ENTRY_ID</th>
                       </tr>
                     </thead>
                     <tbody className={`divide-y border-t ${
-                      isLight ? 'border-black divide-black' : 'border-slate-700/80 divide-slate-800'
+                      isLight ? 'border-slate-300 divide-slate-200' : 'border-slate-700/80 divide-slate-800'
                     }`}>
                       {loading ? (
                         <tr>
-                          <td colSpan={8} className={`py-8 text-center border ${isLight ? 'border-black text-slate-600 font-bold' : 'border-slate-800 text-slate-500'}`}>
+                          <td colSpan={8} className={`py-8 text-center border ${isLight ? 'border-slate-200 text-slate-600 font-bold' : 'border-slate-800 text-slate-500'}`}>
                             <div className="flex items-center justify-center gap-2">
                               <RotateCw className="w-4 h-4 animate-spin text-sky-500" />
                               <span className="font-mono">EXEC: fetching raw attendance punches for [{formatCustomDateLabel(startDate, endDate)}]...</span>
@@ -1403,7 +1476,7 @@ export default function TerminalDashboard() {
                         </tr>
                       ) : filteredRecords.length === 0 ? (
                         <tr>
-                          <td colSpan={8} className={`py-8 text-center border ${isLight ? 'border-black text-slate-600 font-bold' : 'border-slate-800 text-slate-500'}`}>
+                          <td colSpan={8} className={`py-8 text-center border ${isLight ? 'border-slate-200 text-slate-600 font-bold' : 'border-slate-800 text-slate-500'}`}>
                             [NO RAW PUNCH RECORDS FOUND FOR {formatCustomDateLabel(startDate, endDate)}]
                           </td>
                         </tr>
@@ -1412,20 +1485,20 @@ export default function TerminalDashboard() {
                           <tr
                             key={item.entry_id}
                             className={`border-b transition-colors group ${
-                              isLight ? 'bg-white hover:bg-slate-100 border-black text-slate-900' : 'hover:bg-sky-950/40 border-slate-800/80'
+                              isLight ? 'bg-white hover:bg-slate-100/70 border-slate-200 text-slate-900' : 'hover:bg-sky-950/40 border-slate-800/80'
                             }`}
                           >
                             <td className={`py-2 px-3 border-r font-bold ${
-                              isLight ? 'border-black text-amber-600' : 'border-slate-800/80 text-amber-400'
+                              isLight ? 'border-slate-200 text-amber-700' : 'border-slate-800/80 text-amber-400'
                             }`}>
                               #{idx + 1}
                             </td>
                             <td className={`py-2 px-3 border-r font-semibold ${
-                              isLight ? 'border-black text-slate-700' : 'border-slate-800/80 text-slate-400'
+                              isLight ? 'border-slate-200 text-slate-700' : 'border-slate-800/80 text-slate-400'
                             }`}>
                               #{item.serial_no}
                             </td>
-                            <td className={`py-2 px-3 border-r ${isLight ? 'border-black' : 'border-slate-800/80'}`}>
+                            <td className={`py-2 px-3 border-r ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}>
                               <span className={`font-bold px-1.5 py-0.5 rounded border ${
                                 isLight
                                   ? 'text-emerald-700 bg-emerald-50 border-emerald-400'
@@ -1435,16 +1508,16 @@ export default function TerminalDashboard() {
                               </span>
                             </td>
                             <td className={`py-2 px-3 border-r font-bold ${
-                              isLight ? 'border-black text-slate-900' : 'border-slate-800/80 text-white group-hover:text-sky-300'
+                              isLight ? 'border-slate-200 text-slate-900' : 'border-slate-800/80 text-white group-hover:text-sky-300'
                             }`}>
                               {item.user_name}
                             </td>
                             <td className={`py-2 px-3 border-r font-medium ${
-                              isLight ? 'border-black text-slate-700' : 'border-slate-800/80 text-slate-300'
+                              isLight ? 'border-slate-200 text-slate-700' : 'border-slate-800/80 text-slate-300'
                             }`}>
                               {item.attendance_date}
                             </td>
-                            <td className={`py-2 px-3 border-r ${isLight ? 'border-black' : 'border-slate-800/80'}`}>
+                            <td className={`py-2 px-3 border-r ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}>
                               <span className={`font-bold px-1.5 py-0.5 rounded border ${
                                 isLight
                                   ? 'text-sky-700 bg-sky-50 border-sky-400'
@@ -1454,7 +1527,7 @@ export default function TerminalDashboard() {
                               </span>
                             </td>
                             <td className={`py-2 px-3 border-r ${
-                              isLight ? 'border-black text-slate-600' : 'border-slate-800/80 text-slate-400'
+                              isLight ? 'border-slate-200 text-slate-600' : 'border-slate-800/80 text-slate-400'
                             }`}>
                               {item.atn_token}
                             </td>

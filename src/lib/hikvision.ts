@@ -594,6 +594,16 @@ export async function fetchHikvisionEvents(): Promise<{ data: any; deviceIp: str
 
 export async function syncHikvisionAttendance() {
   try {
+    const deviceInfo = await getHikvisionDeviceInfo();
+    if (!deviceInfo.isConnected) {
+      return {
+        success: false,
+        error: 'Machine is offline / disconnected. Machine API calls paused.',
+        processed: 0,
+        deviceIp: deviceInfo.ip,
+      };
+    }
+
     const supabase = getSupabaseClient();
 
     // Populate in-memory set from Supabase or reset if DB was truncated
