@@ -1212,7 +1212,7 @@ export default function TerminalDashboard() {
               
               {viewMode === 'SUMMARY' ? (
                 /* GROUPED CHECK-IN / CHECK-OUT TABLE */
-                <div className="overflow-x-auto touch-pan-x scrollbar-thin">
+                <div className="overflow-x-auto touch-auto scrollbar-thin">
                   <table className="w-full text-left text-xs font-mono border-collapse whitespace-nowrap">
                     <thead className={`border-b-2 select-none ${
                       isLight ? 'bg-white text-slate-900 border-black font-bold' : 'bg-[#090e1a] text-slate-300 border-slate-700'
@@ -1373,7 +1373,7 @@ export default function TerminalDashboard() {
                 </div>
               ) : (
                 /* RAW ALL PUNCHES LOG TABLE */
-                <div className="overflow-x-auto touch-pan-x scrollbar-thin">
+                <div className="overflow-x-auto touch-auto scrollbar-thin">
                   <table className="w-full text-left text-xs font-mono border-collapse whitespace-nowrap">
                     <thead className={`border-b-2 select-none ${
                       isLight ? 'bg-white text-slate-900 border-black font-bold' : 'bg-[#090e1a] text-slate-300 border-slate-700'
