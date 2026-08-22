@@ -91,7 +91,7 @@ function parseHikTime(timeStr) {
 
 async function fetchHikvisionEvents() {
   const uri = '/ISAPI/AccessControl/AcsEvent?format=json';
-  const url = `https://${HIK_IP}${uri}`;
+  const url = `http://${HIK_IP}${uri}`;
   const now = new Date();
   const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
   const startYYYY = threeDaysAgo.getFullYear();

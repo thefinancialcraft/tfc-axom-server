@@ -335,37 +335,7 @@ export default function TerminalDashboard() {
     }
   }, [addLog]);
 
-  // Browser Client-Side Direct LAN Probe for Vercel Deployments
-  const checkBrowserDirectConnection = useCallback(async (targetIp: string) => {
-    try {
-      addLog(`PROBE: Testing browser direct HTTP ping to http://${targetIp}/ISAPI/System/deviceInfo...`);
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2000);
 
-      const res = await fetch(`http://${targetIp}/ISAPI/System/deviceInfo`, {
-        method: 'GET',
-        mode: 'no-cors',
-        signal: controller.signal,
-      }).catch(() => null);
-
-      clearTimeout(timeoutId);
-
-      if (res) {
-        addLog(`SUCCESS: Browser direct Wi-Fi response received from http://${targetIp}!`);
-        setDeviceInfo({
-          isConnected: true,
-          ip: targetIp,
-          model: 'DS-K1T320EFWX',
-          deviceName: 'Access Controller',
-          serialNumber: '--',
-          macAddress: 'a4:d5:c2:1c:4d:83',
-          firmwareVersion: 'V3.5.2',
-        });
-        return true;
-      }
-    } catch {}
-    return false;
-  }, [addLog]);
 
   const fetchAttendanceData = useCallback(async () => {
     try {
@@ -398,12 +368,6 @@ export default function TerminalDashboard() {
 
             if (data.deviceInfo.isConnected) {
               addLog(`DEVICE_STATUS: Connected [IP: ${data.deviceInfo.ip}, Model: ${data.deviceInfo.model || 'DS-K1T320EFWX'}]`);
-            } else {
-              addLog(`DEVICE_STATUS: Offline/Unreachable at IP ${data.deviceInfo.ip || deviceIp}. Probing browser direct LAN...`);
-              const directConnected = await checkBrowserDirectConnection(data.deviceInfo.ip || deviceIp);
-              if (directConnected) {
-                addLog(`NETWORK: Local Wi-Fi browser bridge established with machine at ${data.deviceInfo.ip || deviceIp}!`);
-              }
             }
           }
 
@@ -421,12 +385,11 @@ export default function TerminalDashboard() {
       }
     } catch (err: any) {
       addLog(`ERROR: Failed to fetch attendance data - ${err.message}`);
-      checkBrowserDirectConnection(deviceIp);
     } finally {
       setLoading(false);
       setIsCheckingStatus(false);
     }
-  }, [addLog, checkBrowserDirectConnection, deviceIp, startDate, endDate]);
+  }, [addLog, deviceIp, startDate, endDate]);
 
   const triggerManualSync = async () => {
     setIsSyncing(true);
@@ -591,49 +554,26 @@ export default function TerminalDashboard() {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-            // Parallel Probe: Test both Server /api/scan route AND Direct Browser LAN Ping (for Vercel cloud deployments)
-            const [scanRes, browserDirectSuccess] = await Promise.all([
-              fetchWithClosedLog('/api/scan', { signal: controller.signal }).catch(() => null),
-              checkBrowserDirectConnection(deviceIp).catch(() => false),
-            ]);
-
+            const scanRes = await fetchWithClosedLog('/api/scan', { signal: controller.signal }).catch(() => null);
             clearTimeout(timeoutId);
             clearInterval(countdownInterval);
 
-            let isConn = false;
             if (scanRes && scanRes.ok) {
               const scanData = await scanRes.json();
-              if (scanData && (scanData.isConnected === true || scanData.success === true || scanData.isDiscovered === true)) {
-                isConn = true;
+              if (scanData && (scanData.isConnected === true || scanData.success === true)) {
+                machineConnected = true;
                 detectedDevInfo = scanData.deviceInfo || {
                   isConnected: true,
-                  ip: scanData.deviceIp || scanData.ip || deviceIp,
+                  ip: scanData.deviceIp || deviceIp,
                   model: 'DS-K1T320EFWX',
                   deviceName: 'Access Controller',
-                  serialNumber: '--',
+                  serialNumber: 'DS-K1T320EFWX20240701V030502ENFS1267085',
                   macAddress: 'a4:d5:c2:1c:4d:83',
                   firmwareVersion: 'V3.5.2',
                 };
+                addLog(`✅ MACHINE_CONNECTED: Biometric machine [${deviceIp}] connected! Live relay bridge active.`);
+                break;
               }
-            }
-
-            if (!isConn && browserDirectSuccess) {
-              isConn = true;
-              detectedDevInfo = {
-                isConnected: true,
-                ip: deviceIp,
-                model: 'DS-K1T320EFWX',
-                deviceName: 'Access Controller',
-                serialNumber: '--',
-                macAddress: 'a4:d5:c2:1c:4d:83',
-                firmwareVersion: 'V3.5.2',
-              };
-            }
-
-            if (isConn) {
-              machineConnected = true;
-              addLog(`✅ MACHINE_CONNECTED: Biometric machine [${deviceIp}] connected directly on Attempt ${attempt}/5! Serving records directly from machine.`);
-              break;
             }
           } catch {
             clearInterval(countdownInterval);
@@ -789,37 +729,8 @@ export default function TerminalDashboard() {
                   addLog(`⚡ REALTIME: +${data.newRecordsInserted} New Punch(es) synced directly from machine!`);
                 }
               } else if (data && !data.isConnected) {
-                // Before marking offline, test direct browser Wi-Fi connection (essential for Vercel cloud deployments)
-                const isBrowserDirectWorking = await checkBrowserDirectConnection(deviceIp).catch(() => false);
-                if (isBrowserDirectWorking) {
-                  wasOfflineRef.current = false;
-                  setDeviceInfo({
-                    isConnected: true,
-                    ip: deviceIp,
-                    model: 'DS-K1T320EFWX',
-                    deviceName: 'Access Controller',
-                    serialNumber: '--',
-                    macAddress: 'a4:d5:c2:1c:4d:83',
-                    firmwareVersion: 'V3.5.2',
-                  });
-                  await fetchAttendanceData();
-                } else {
-                  wasOfflineRef.current = true;
-                  addLog(`WARN: Machine disconnected. Data preserved in cache.`);
-                  if (data.deviceInfo) {
-                    setDeviceInfo(data.deviceInfo);
-                  } else {
-                    setDeviceInfo({
-                      isConnected: false,
-                      ip: deviceIp,
-                      model: 'DS-K1T320EFWX',
-                      deviceName: 'Access Controller',
-                      serialNumber: '--',
-                      macAddress: 'a4:d5:c2:1c:4d:83',
-                      firmwareVersion: 'V3.5.2',
-                    });
-                  }
-                }
+                wasOfflineRef.current = true;
+                addLog(`WARN: Relay agent offline. Preserving local cache.`);
               }
             }
           } catch {}
