@@ -16,17 +16,8 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const dateParam = searchParams.get('date'); // e.g. "TODAY", "ALL", "2026-08-21"
 
-    const nowTs = Date.now();
     const supabase = getSupabaseClient();
     const deviceInfo = await getHikvisionDeviceInfo();
-
-    // 1. Machine API Sync: Only trigger background sync if machine is connected
-    if (deviceInfo && deviceInfo.isConnected && nowTs - lastAutoSyncTime > 3000) {
-      lastAutoSyncTime = nowTs;
-      syncHikvisionAttendance().catch((syncErr) => {
-        console.warn('Background sync warning:', syncErr.message);
-      });
-    }
 
     const now = new Date();
     

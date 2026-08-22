@@ -9,8 +9,10 @@ import {
   Database,
   Wifi,
   Clock,
+  Timer,
   ShieldCheck,
   Radar,
+  Fingerprint,
   FileCode,
   Users,
   UserCheck,
@@ -28,7 +30,9 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
-  Settings
+  Settings,
+  Radio,
+  Loader2
 } from 'lucide-react';
 
 interface RecordItem {
@@ -186,6 +190,11 @@ export default function TerminalDashboard() {
   const [isCheckingStatus, setIsCheckingStatus] = useState<boolean>(true);
   const [inactiveEmpIds, setInactiveEmpIds] = useState<Set<string>>(new Set());
   const [activeEmployeesList, setActiveEmployeesList] = useState<{ employeeId: string; employeeName: string }[]>([]);
+  const [isProbeModalOpen, setIsProbeModalOpen] = useState<boolean>(true);
+  const [probeAttemptCount, setProbeAttemptCount] = useState<number>(1);
+  const [probeTimerSec, setProbeTimerSec] = useState<number>(10);
+  const [isDirectMachineMode, setIsDirectMachineMode] = useState<boolean>(false);
+  const wasOfflineRef = useRef<boolean>(true);
 
   // Offline Auto-Scan 5-Retry & 1-Hour Pause Engine Refs/State
   const offlineRetryCountRef = useRef<number>(0);
@@ -204,9 +213,23 @@ export default function TerminalDashboard() {
     setOfflinePauseState({ isPaused: false, minsLeft: 0, pauseUntilStr: '' });
   }, []);
 
+  // Load saved localStorage cache on mount so data is NEVER wiped out (data udna nahi chahiye!)
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem('axom_attendance_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setAllRecords(parsed);
+          setTotal(parsed.length);
+        }
+      }
+    } catch {}
+  }, []);
+
   const fetchActiveEmployees = useCallback(async () => {
     try {
-      const res = await fetch('/api/employees');
+      const res = await fetchWithClosedLog('/api/employees');
       if (res.ok) {
         const data = await res.json();
         if (data.success && Array.isArray(data.employees)) {
@@ -278,8 +301,39 @@ export default function TerminalDashboard() {
 
   const addLog = useCallback((msg: string) => {
     const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
-    setLogs((prev) => [`[${timestamp}] ${msg}`, ...prev.slice(0, 100)]);
+    const fullLog = `[${timestamp}] ${msg}`;
+    setLogs((prev) => [fullLog, ...prev.slice(0, 100)]);
+
+    // Styled Browser Inspect Console Logging for Every Event Case
+    if (typeof window !== 'undefined') {
+      if (msg.includes('ERROR') || msg.includes('FATAL') || msg.includes('failed')) {
+        console.error(`%c[AXOM-DAEMON ${timestamp}] ❌ ${msg}`, 'color: #ff5252; font-weight: bold;');
+      } else if (msg.includes('WARN') || msg.includes('disconnected')) {
+        console.warn(`%c[AXOM-DAEMON ${timestamp}] ⚠️ ${msg}`, 'color: #ffd700; font-weight: bold;');
+      } else if (msg.includes('SUCCESS') || msg.includes('CONNECTED') || msg.includes('✅')) {
+        console.log(`%c[AXOM-DAEMON ${timestamp}] ✅ ${msg}`, 'color: #00e676; font-weight: bold;');
+      } else if (msg.includes('RECONNECTED') || msg.includes('REALTIME') || msg.includes('⚡')) {
+        console.log(`%c[AXOM-DAEMON ${timestamp}] ⚡ ${msg}`, 'color: #00b0ff; font-weight: bold;');
+      } else {
+        console.log(`%c[AXOM-DAEMON ${timestamp}] ℹ️ ${msg}`, 'color: #00e5ff; font-weight: 500;');
+      }
+    }
   }, []);
+
+  const fetchWithClosedLog = useCallback(async (url: string, init?: RequestInit) => {
+    const t0 = Date.now();
+    try {
+      const res = await fetch(url, init);
+      const duration = Date.now() - t0;
+      const statusStr = `${res.status} ${res.statusText || 'OK'}`;
+      addLog(`[API_CLOSED] ${url} ➔ Connection Closed (${statusStr}, ${duration}ms)`);
+      return res;
+    } catch (err: any) {
+      const duration = Date.now() - t0;
+      addLog(`[API_CLOSED_ERROR] ${url} ➔ Connection Closed with Error: ${err.message} (${duration}ms)`);
+      throw err;
+    }
+  }, [addLog]);
 
   // Browser Client-Side Direct LAN Probe for Vercel Deployments
   const checkBrowserDirectConnection = useCallback(async (targetIp: string) => {
@@ -321,7 +375,7 @@ export default function TerminalDashboard() {
       
       const label = formatCustomDateLabel(startDate, endDate);
       addLog(`FETCH: Requesting ${url} from Supabase Cloud...`);
-      const res = await fetch(url);
+      const res = await fetchWithClosedLog(url);
       if (res.ok) {
         const data = await res.json();
         if (data.success) {
@@ -490,126 +544,291 @@ export default function TerminalDashboard() {
     return () => clearTimeout(timeoutTimer);
   }, [addLog]);
 
-  // Initial Load Status Check
-  useEffect(() => {
-    addLog(`INIT: Axom Biometric Monitor Daemon v2.5 initialized.`);
-    addLog(`CONFIG: Supabase Cloud DB & Hikvision ISAPI Digest driver loaded.`);
-    addLog(`NETWORK: Target device IP set to ${deviceIp}. Probing connection...`);
-    fetchAttendanceData();
-    setLastSyncTime(new Date().toLocaleTimeString());
-  }, [fetchAttendanceData, addLog, deviceIp]);
+  // ----------------------------------------------------
+  // SEQUENTIAL 4-PHASE CHECK & INTERACTION CONTROL PIPELINE
+  // Phase 1: Machine Detection Check (Light Probe)
+  // Phase 2: Progressive Deep Search (If Connected)
+  // Phase 3: Supabase Cloud & Machine Sync Display Finalization
+  // Phase 4: Realtime Auto-Poll (Mutex Lock: Zero API Collisions)
+  // ----------------------------------------------------
 
-  // Dynamic Auto Polling & Offline Auto-Scan Engine (2s Online Polling, 10s Offline Scanning with 5-retry limit & 1hr pause)
-  useEffect(() => {
-    let interval: any;
+  const isApiLockedRef = useRef<boolean>(false);
 
-    if (!isCheckingStatus && isAutoPoll) {
+  useEffect(() => {
+    let isMounted = true;
+
+    const executeSequentialStartupPipeline = async () => {
+      isApiLockedRef.current = true;
+
+      // Reset states to clean defaults on reload
+      setIsProbeModalOpen(true);
+      setIsCheckingStatus(true);
+      setLoading(true);
+      setProbeAttemptCount(1);
+
+      addLog(`INIT: Axom Biometric Monitor Daemon v2.5 initialized.`);
+      addLog(`NETWORK: Probing biometric machine [${deviceIp}] with up to 5 retries...`);
+
+      let machineConnected = false;
+      let detectedDevInfo: DeviceInfoState | null = null;
+
+      try {
+        for (let attempt = 1; attempt <= 5; attempt++) {
+          if (!isMounted) break;
+          setProbeAttemptCount(attempt);
+          setProbeTimerSec(10);
+          addLog(`PROBE_CONNECT (${attempt}/5): Connecting to biometric machine [${deviceIp}]...`);
+
+          const countdownInterval = setInterval(() => {
+            setProbeTimerSec((prev) => (prev > 1 ? prev - 1 : 0));
+          }, 1000);
+
+          await new Promise((r) => setTimeout(r, 50));
+
+          const attemptStart = Date.now();
+
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+            const scanRes = await fetchWithClosedLog('/api/scan', { signal: controller.signal }).catch(() => null);
+            clearTimeout(timeoutId);
+            clearInterval(countdownInterval);
+
+            if (scanRes && scanRes.ok) {
+              const scanData = await scanRes.json();
+              const isConn = !!(scanData && (scanData.isConnected === true || scanData.success === true || scanData.isDiscovered === true));
+              if (isConn) {
+                machineConnected = true;
+                detectedDevInfo = scanData.deviceInfo || {
+                  isConnected: true,
+                  ip: scanData.deviceIp || scanData.ip || deviceIp,
+                  model: 'DS-K1T320EFWX',
+                  deviceName: 'Access Controller',
+                  serialNumber: '--',
+                  macAddress: 'a4:d5:c2:1c:4d:83',
+                  firmwareVersion: 'V3.5.2',
+                };
+                addLog(`✅ MACHINE_CONNECTED: Biometric machine [${deviceIp}] connected directly on Attempt ${attempt}/5! Serving records directly from machine.`);
+                break;
+              }
+            }
+          } catch {
+            clearInterval(countdownInterval);
+          }
+
+          clearInterval(countdownInterval);
+
+          if (attempt < 5 && isMounted) {
+            const elapsed = Date.now() - attemptStart;
+            const remainingMs = Math.max(400, 1500 - elapsed);
+            await new Promise((r) => setTimeout(r, remainingMs));
+          }
+        }
+
+        if (!isMounted) return;
+
+        if (machineConnected && detectedDevInfo) {
+          setIsDirectMachineMode(true);
+          setDeviceInfo(detectedDevInfo);
+          
+          // Machine Connected -> Unlock UI Modal & Show Dashboard
+          setIsProbeModalOpen(false);
+          setIsCheckingStatus(false);
+          setLoading(false);
+
+          // STEP 2: Machine Connected -> Execute Historical Deep Search Scan
+          addLog(`⚡ RECONNECTED: Machine connection restored! Performing deep search (500+ records scan)...`);
+          try {
+            const deepRes = await fetchWithClosedLog('/api/sync?deep=true').catch(() => null);
+            if (deepRes && deepRes.ok) {
+              const deepData = await deepRes.json();
+              if (deepData && deepData.success && Array.isArray(deepData.records) && deepData.records.length > 0) {
+                if (!isMounted) return;
+                setAllRecords((prev) => {
+                  const map = new Map<string, RecordItem>();
+                  prev.forEach((r) => map.set(r.entry_id, r));
+                  deepData.records.forEach((r: RecordItem) => map.set(r.entry_id, r));
+                  const merged = Array.from(map.values());
+                  setTotal(merged.length);
+                  localStorage.setItem('axom_attendance_cache', JSON.stringify(merged));
+                  return merged;
+                });
+                addLog(`✅ RECONNECT_CATCHUP: Deep search complete! Loaded ${deepData.records.length} records.`);
+              }
+            }
+          } catch (deepErr: any) {
+            addLog(`WARN: Deep search notice - ${deepErr.message}`);
+          }
+        } else {
+          addLog(`WARN: Machine probe failed after 5 retries. Falling back to Supabase Cloud DB.`);
+          setIsDirectMachineMode(false);
+          setDeviceInfo({
+            isConnected: false,
+            ip: deviceIp,
+            model: 'DS-K1T320EFWX',
+            deviceName: 'Access Controller',
+            serialNumber: '--',
+            macAddress: 'a4:d5:c2:1c:4d:83',
+            firmwareVersion: 'V3.5.2',
+          });
+          setIsProbeModalOpen(false);
+          setIsCheckingStatus(false);
+          await fetchAttendanceData();
+        }
+      } catch (err: any) {
+        addLog(`ERROR: Startup pipeline notice - ${err.message}`);
+      } finally {
+        if (isMounted) {
+          setIsProbeModalOpen(false);
+          setIsCheckingStatus(false);
+          setLoading(false);
+          wasOfflineRef.current = !machineConnected;
+          isApiLockedRef.current = false;
+        }
+      }
+    };
+
+    executeSequentialStartupPipeline();
+
+    return () => {
+      isMounted = false;
+      isApiLockedRef.current = false;
+    };
+  }, [addLog, deviceIp, fetchAttendanceData]);
+
+
+  // Phase 4: Realtime Auto-Poll Loop (Strict Mutex Lock: Zero API Collisions)
+  useEffect(() => {
+    let syncInterval: any;
+
+    if (!isCheckingStatus && isAutoPoll && !isProbeModalOpen) {
       const isOnline = deviceInfo && deviceInfo.isConnected;
 
       if (isOnline) {
         if (offlineRetryCountRef.current !== 0 || offlinePausedUntilRef.current !== null) {
           resetOfflineRetryState();
         }
-        addLog(`POLLING_HEARTBEAT: Machine connected [${deviceInfo.ip}]. Polling active (every 2.0s).`);
-        interval = setInterval(() => {
-          fetchAttendanceData();
-        }, 2000);
+
+        // Fast Realtime Poll (every 2.5s) - Strictly checks isApiLockedRef to prevent ANY API collision!
+        syncInterval = setInterval(async () => {
+          if (isApiLockedRef.current) return;
+          isApiLockedRef.current = true;
+
+          try {
+            const res = await fetchWithClosedLog('/api/sync');
+            if (res.ok) {
+              const data = await res.json();
+              if (data && data.success && data.isConnected) {
+                // Reconnection Catchup Trigger: If machine was offline and is now reconnected -> Deep Search
+                if (wasOfflineRef.current) {
+                  wasOfflineRef.current = false;
+                  addLog(`⚡ RECONNECTED: Machine connection restored! Performing deep search (500+ records scan)...`);
+                  fetchWithClosedLog('/api/sync?deep=true')
+                    .then((r) => r.json())
+                    .then((deepData) => {
+                      if (deepData && deepData.success && Array.isArray(deepData.records) && deepData.records.length > 0) {
+                        setAllRecords((prev) => {
+                          const map = new Map<string, RecordItem>();
+                          prev.forEach((r) => map.set(r.entry_id, r));
+                          deepData.records.forEach((r: RecordItem) => map.set(r.entry_id, r));
+                          const merged = Array.from(map.values());
+                          setTotal(merged.length);
+                          localStorage.setItem('axom_attendance_cache', JSON.stringify(merged));
+                          return merged;
+                        });
+                        addLog(`✅ RECONNECT_CATCHUP: Deep search complete! Loaded ${deepData.records.length} records. Switching to fast 30-latest mode.`);
+                      }
+                    })
+                    .catch(() => null);
+                }
+
+                if (Array.isArray(data.records) && data.records.length > 0) {
+                  setAllRecords((prev) => {
+                    const map = new Map<string, RecordItem>();
+                    prev.forEach((r) => map.set(r.entry_id, r));
+                    data.records.forEach((r: RecordItem) => map.set(r.entry_id, r));
+                    const merged = Array.from(map.values());
+                    setTotal(merged.length);
+                    localStorage.setItem('axom_attendance_cache', JSON.stringify(merged));
+                    return merged;
+                  });
+                }
+                if (data.newRecordsInserted > 0) {
+                  addLog(`⚡ REALTIME: +${data.newRecordsInserted} New Punch(es) synced directly from machine!`);
+                }
+              } else if (data && !data.isConnected) {
+                wasOfflineRef.current = true;
+                addLog(`WARN: Machine disconnected. Data preserved in cache.`);
+                if (data.deviceInfo) {
+                  setDeviceInfo(data.deviceInfo);
+                } else {
+                  setDeviceInfo({
+                    isConnected: false,
+                    ip: deviceIp,
+                    model: 'DS-K1T320EFWX',
+                    deviceName: 'Access Controller',
+                    serialNumber: '--',
+                    macAddress: 'a4:d5:c2:1c:4d:83',
+                    firmwareVersion: 'V3.5.2',
+                  });
+                }
+              }
+            }
+          } catch {}
+          finally {
+            isApiLockedRef.current = false;
+          }
+        }, 2500);
       } else {
-        const targetIp = deviceInfo?.ip || deviceIp;
-
-        const runOfflineScanStep = async () => {
-          const now = Date.now();
-
-          // 1. Check if 1-hour pause is currently active
-          if (offlinePausedUntilRef.current && now < offlinePausedUntilRef.current) {
-            const minsLeft = Math.ceil((offlinePausedUntilRef.current - now) / 60000);
-            const timeStr = new Date(offlinePausedUntilRef.current).toLocaleTimeString();
-            setOfflinePauseState({ isPaused: true, minsLeft, pauseUntilStr: timeStr });
-            return;
-          }
-
-          // 2. Check if 1-hour pause has expired -> Reset counter & resume
-          if (offlinePausedUntilRef.current && now >= offlinePausedUntilRef.current) {
-            offlinePausedUntilRef.current = null;
-            offlineRetryCountRef.current = 0;
-            lastScanTimestampRef.current = 0;
-            setOfflinePauseState({ isPaused: false, minsLeft: 0, pauseUntilStr: '' });
-            addLog(`OFFLINE_RESUME: 1-hour pause expired. Resuming auto-scan cycle...`);
-          }
-
-          // 3. Throttle safeguard: Ensure at least 9.5s between offline retry attempts
-          if (lastScanTimestampRef.current > 0 && now - lastScanTimestampRef.current < 9500) {
-            return;
-          }
-          lastScanTimestampRef.current = now;
-
-          // 4. Perform scan attempt if within 5-retry limit
-          if (offlineRetryCountRef.current < 5) {
-            offlineRetryCountRef.current += 1;
-            const currentAttempt = offlineRetryCountRef.current;
-            addLog(`OFFLINE_SCAN (${currentAttempt}/5): Machine offline [${targetIp}]. Probing connection (10.0s tick)...`);
-            try {
-              fetch('/api/scan').catch(() => null);
-            } catch {}
-            fetchAttendanceData();
-          } else {
-            // 5. 5 retries failed -> Trigger 1-hour pause
-            const pauseUntilMs = now + 3600000; // 1 hour = 3,600,000 ms
-            offlinePausedUntilRef.current = pauseUntilMs;
-            const timeStr = new Date(pauseUntilMs).toLocaleTimeString();
-            setOfflinePauseState({ isPaused: true, minsLeft: 60, pauseUntilStr: timeStr });
-            addLog(`OFFLINE_PAUSED: Max retries (5/5) reached. Machine non-responsive. Pausing auto-scan for 1 hour (until ${timeStr}). Click ./scan to retry.`);
-          }
-        };
-
-        // Run immediate scan step when going offline
-        runOfflineScanStep();
-
-        interval = setInterval(() => {
-          runOfflineScanStep();
-        }, 10000);
+        wasOfflineRef.current = true;
       }
     }
 
     return () => {
-      if (interval) clearInterval(interval);
+      if (syncInterval) clearInterval(syncInterval);
     };
-  }, [isCheckingStatus, deviceInfo, isAutoPoll, fetchAttendanceData, addLog, deviceIp, resetOfflineRetryState]);
+  }, [isCheckingStatus, deviceInfo, isAutoPoll, isProbeModalOpen, addLog, deviceIp, resetOfflineRetryState]);
+
+  const normalizeDateToIso = (dateStr: string): string => {
+    if (!dateStr) return '';
+    const clean = dateStr.trim();
+    if (clean.includes('/')) {
+      const parts = clean.split('/');
+      if (parts.length === 3) {
+        let [d, m, y] = parts;
+        if (y.length === 2) y = `20${y}`;
+        return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+      }
+    }
+    return clean;
+  };
 
   const isRecordMatchingDate = (recordDateStr: string, targetIso: string) => {
     if (!recordDateStr) return false;
-    const clean = recordDateStr.trim();
-    const parts = targetIso.split('-');
-    if (parts.length !== 3) return clean === targetIso;
-    const [y, m, d] = parts;
-    const shortY = y.slice(-2);
-
-    const matchShort = `${d}/${m}/${shortY}`;
-    const matchFull = `${d}/${m}/${y}`;
-
-    return clean === targetIso || clean === matchShort || clean === matchFull;
+    const recIso = normalizeDateToIso(recordDateStr);
+    return recIso === targetIso;
   };
 
   const todayIso = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
 
   const isRecordMatchingRange = (recordDateStr: string, startIso: string, endIso?: string | null) => {
     if (!recordDateStr) return false;
-    const clean = recordDateStr.trim();
+    const recIso = normalizeDateToIso(recordDateStr);
     if (!endIso || startIso === endIso) {
-      return isRecordMatchingDate(clean, startIso);
-    }
-    let recIso = clean;
-    if (clean.includes('/')) {
-      const parts = clean.split('/');
-      if (parts.length === 3) {
-        let [d, m, y] = parts;
-        if (y.length === 2) y = `20${y}`;
-        recIso = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
-      }
+      return recIso === startIso;
     }
     const minIso = startIso < endIso ? startIso : endIso;
     const maxIso = startIso > endIso ? startIso : endIso;
     return recIso >= minIso && recIso <= maxIso;
+  };
+
+  const matchesEmpId = (idA: string, idB: string): boolean => {
+    if (!idA || !idB) return false;
+    if (idA.trim().toLowerCase() === idB.trim().toLowerCase()) return true;
+    const numA = idA.replace(/[^0-9]/g, '');
+    const numB = idB.replace(/[^0-9]/g, '');
+    return numA !== '' && numA === numB;
   };
 
   // Active records filtered by Date Range & Active Employee Status (Inactive employees hidden)
@@ -663,18 +882,8 @@ export default function TerminalDashboard() {
 
   // Group records by Employee ID & Date -> Pre-fill entries for ALL ACTIVE EMPLOYEES!
   const getGroupedAttendance = (): GroupedAttendance[] => {
-    const map = new Map<string, RecordItem[]>();
-
-    for (const item of filteredRecords) {
-      const key = item.employee_id;
-      if (!map.has(key)) {
-        map.set(key, []);
-      }
-      map.get(key)!.push(item);
-    }
-
     const grouped: GroupedAttendance[] = [];
-    const processedEmpIds = new Set<string>();
+    const matchedPunchEntryIds = new Set<string>();
 
     // 1. Process all active employees from master active employees list
     activeEmployeesList.forEach((emp) => {
@@ -686,11 +895,12 @@ export default function TerminalDashboard() {
 
       if (!matchesSearch) return;
 
-      processedEmpIds.add(emp.employeeId);
-      const list = map.get(emp.employeeId) || [];
+      const list = filteredRecords.filter((item) =>
+        matchesEmpId(item.employee_id, emp.employeeId)
+      );
 
       if (list.length > 0) {
-        // Employee has punched!
+        list.forEach((r) => matchedPunchEntryIds.add(r.entry_id));
         const sorted = [...list].sort((a, b) => getPunchSecondsOfDay(a) - getPunchSecondsOfDay(b));
         const first = sorted[0];
         const last = sorted[sorted.length - 1];
@@ -723,9 +933,17 @@ export default function TerminalDashboard() {
       }
     });
 
-    // 2. Also process any punches for active employees not in activeEmployeesList yet
-    Array.from(map.entries()).forEach(([empId, list]) => {
-      if (!processedEmpIds.has(empId) && !inactiveEmpIds.has(empId) && list.length > 0) {
+    // 2. Also process any punches for active employees not matched by activeEmployeesList yet
+    const unmappedPunches = filteredRecords.filter((r) => !matchedPunchEntryIds.has(r.entry_id));
+    const unmappedMap = new Map<string, RecordItem[]>();
+    for (const item of unmappedPunches) {
+      const key = item.employee_id;
+      if (!unmappedMap.has(key)) unmappedMap.set(key, []);
+      unmappedMap.get(key)!.push(item);
+    }
+
+    unmappedMap.forEach((list, empId) => {
+      if (!inactiveEmpIds.has(empId) && list.length > 0) {
         const sorted = [...list].sort((a, b) => getPunchSecondsOfDay(a) - getPunchSecondsOfDay(b));
         const first = sorted[0];
         const last = sorted[sorted.length - 1];
@@ -1647,6 +1865,66 @@ export default function TerminalDashboard() {
           </div>
         </div>
       </div>
+
+      {/* Recreated Minimal & High-Tech Biometric Probe Modal */}
+      {isProbeModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 backdrop-blur-lg transition-all p-4">
+          <div className={`w-full max-w-sm p-5 rounded-2xl border-2 shadow-[0_0_50px_rgba(6,182,212,0.25)] transition-all ${
+            isLight ? 'bg-white border-cyan-600 text-slate-900' : 'bg-[#060a12]/95 border-cyan-500/40 text-slate-100'
+          }`}>
+            <div className="flex flex-col items-center text-center space-y-4">
+              {/* Sleek Biometric Radar / Fingerprint Scanner Animation */}
+              <div className="relative flex items-center justify-center w-16 h-16 my-1">
+                <div className="absolute inset-0 rounded-full border-2 border-cyan-500/30 animate-ping" />
+                <div className="absolute -inset-1 rounded-full border-2 border-cyan-400/50 animate-spin border-t-transparent border-b-transparent" />
+                <div className="relative flex items-center justify-center w-12 h-12 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/40 shadow-[0_0_15px_rgba(6,182,212,0.4)]">
+                  <Fingerprint className="w-6 h-6 animate-pulse text-cyan-400" />
+                </div>
+              </div>
+
+              {/* Minimal Title & Compact Metadata */}
+              <div className="space-y-1">
+                <h3 className="text-base font-extrabold tracking-wide uppercase text-cyan-400">
+                  CONNECTING MACHINE
+                </h3>
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-800/80 border border-slate-700 text-[11px] font-mono text-slate-300">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
+                  IP: <span className="text-white font-bold">{deviceIp}</span>
+                </div>
+              </div>
+
+              {/* Glowing Multi-Color Progress Bar */}
+              <div className="w-full space-y-1.5">
+                <div className="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-slate-800 p-0.5">
+                  <div
+                    className="bg-gradient-to-r from-cyan-500 via-sky-400 to-emerald-400 h-full rounded-full transition-all duration-300 shadow-[0_0_10px_rgba(52,211,153,0.5)]"
+                    style={{ width: `${(probeAttemptCount / 5) * 100}%` }}
+                  />
+                </div>
+
+                {/* Attempt Badge & Live Countdown Timer */}
+                <div className="flex items-center justify-between text-[11px] font-mono font-bold px-0.5">
+                  <span className="text-cyan-400 flex items-center gap-1">
+                    <Loader2 className="w-3 h-3 animate-spin text-cyan-400" />
+                    ATTEMPT {probeAttemptCount}/5
+                  </span>
+                  <span className="text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/60 flex items-center gap-1.5">
+                    <Timer className="w-3 h-3 text-emerald-400" />
+                    00:0{probeTimerSec}s
+                  </span>
+                </div>
+              </div>
+
+              {/* Compact Subtext Badge */}
+              <div className="pt-1 border-t border-slate-800/80 w-full">
+                <span className="text-[10px] font-mono uppercase text-slate-400 font-semibold tracking-wider">
+                  [AUTO-FALLBACK: CLOUD DB AFTER 5 RETRIES]
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

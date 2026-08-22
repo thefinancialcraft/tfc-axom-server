@@ -241,30 +241,19 @@ export function getLocalSubnets(): string[] {
 }
 
 async function checkIpIsHikvision(ip: string): Promise<boolean> {
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-
+  const protocol = cachedWorkingProtocol || 'http';
   const testEndpoints = [
-    `https://${ip}/ISAPI/System/deviceInfo`,
+    `${protocol}://${ip}/ISAPI/System/deviceInfo`,
     `http://${ip}/ISAPI/System/deviceInfo`,
-    `https://${ip}/ISAPI/AccessControl/AcsEvent?format=json`,
   ];
 
   for (const url of testEndpoints) {
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 1500);
-
-      const res = await fetch(url, {
-        method: 'GET',
-        signal: controller.signal,
-      }).catch(() => null);
-
-      clearTimeout(timeoutId);
-
+      const res = await fetchHikvisionRequest(url, { method: 'GET' }).catch(() => null);
       if (!res) continue;
 
-      const wwwAuth = (res.headers.get('www-authenticate') || '').toLowerCase();
-      const serverHeader = (res.headers.get('server') || '').toLowerCase();
+      const wwwAuth = String(res.headers['www-authenticate'] || '').toLowerCase();
+      const serverHeader = String(res.headers['server'] || '').toLowerCase();
 
       if (
         res.status === 401 ||
@@ -289,18 +278,16 @@ export async function discoverHikvisionDevice(forceRescan = false): Promise<{
   method: 'SADP_MULTICAST' | 'HTTP_SUBNET_SCAN' | 'CACHE_FALLBACK';
 }> {
   const candidateIp = cachedHikIp || DEFAULT_HIK_IP;
-  if (!forceRescan) {
-    const isWorking = await checkIpIsHikvision(candidateIp);
-    if (isWorking) {
-      cachedHikIp = candidateIp;
-      return {
-        ip: candidateIp,
-        scannedCount: 1,
-        subnets: getLocalSubnets(),
-        isDiscovered: true,
-        method: 'CACHE_FALLBACK',
-      };
-    }
+  const isWorking = await checkIpIsHikvision(candidateIp);
+  if (isWorking) {
+    cachedHikIp = candidateIp;
+    return {
+      ip: candidateIp,
+      scannedCount: 1,
+      subnets: getLocalSubnets(),
+      isDiscovered: true,
+      method: 'CACHE_FALLBACK',
+    };
   }
 
   try {
@@ -377,7 +364,8 @@ export async function getHikvisionDeviceInfo(): Promise<HikvisionDeviceInfo> {
 
   const ip = cachedHikIp || DEFAULT_HIK_IP;
   const uri = '/ISAPI/System/deviceInfo';
-  const url = `https://${ip}${uri}`;
+  const protocol = cachedWorkingProtocol || 'http';
+  const url = `${protocol}://${ip}${uri}`;
 
   try {
     const firstRes = await fetchHikvisionRequest(url, { method: 'GET' }).catch(() => null);
@@ -396,8 +384,9 @@ export async function getHikvisionDeviceInfo(): Promise<HikvisionDeviceInfo> {
       return cachedDeviceInfo;
     }
 
+    let xmlText = '';
     if (firstRes.status === 401) {
-      const wwwAuth = firstRes.headers['www-authenticate'] || '';
+      const wwwAuth = String(firstRes.headers['www-authenticate'] || '');
       const digestHeader = buildDigestHeader('GET', uri, wwwAuth, HIK_USER, HIK_PASS);
 
       const secondRes = await fetchHikvisionRequest(url, {
@@ -406,25 +395,45 @@ export async function getHikvisionDeviceInfo(): Promise<HikvisionDeviceInfo> {
       }).catch(() => null);
 
       if (secondRes && secondRes.ok) {
-        const xmlText = await secondRes.text();
-        const modelMatch = xmlText.match(/<model>([^<]+)<\/model>/i);
-        const nameMatch = xmlText.match(/<deviceName>([^<]+)<\/deviceName>/i);
-        const serialMatch = xmlText.match(/<serialNumber>([^<]+)<\/serialNumber>/i);
-        const macMatch = xmlText.match(/<macAddress>([^<]+)<\/macAddress>/i);
-        const fwMatch = xmlText.match(/<firmwareVersion>([^<]+)<\/firmwareVersion>/i);
-
-        cachedDeviceInfo = {
-          isConnected: true,
-          ip,
-          model: modelMatch ? modelMatch[1] : 'DS-K1T320EFWX',
-          deviceName: nameMatch ? nameMatch[1] : 'Access Controller',
-          serialNumber: serialMatch ? serialMatch[1] : '--',
-          macAddress: macMatch ? macMatch[1] : 'a4:d5:c2:1c:4d:83',
-          firmwareVersion: fwMatch ? fwMatch[1] : 'V3.5.2',
-        };
-        lastDeviceInfoTs = now;
-        return cachedDeviceInfo;
+        xmlText = await secondRes.text();
       }
+    } else if (firstRes.ok) {
+      xmlText = await firstRes.text();
+    }
+
+    if (firstRes) {
+      const modelMatch =
+        xmlText.match(/<model[^>]*>([^<]+)<\/model>/i) ||
+        xmlText.match(/"model"\s*:\s*"([^"]+)"/i) ||
+        xmlText.match(/<subModel[^>]*>([^<]+)<\/subModel>/i);
+
+      const nameMatch =
+        xmlText.match(/<deviceName[^>]*>([^<]+)<\/deviceName>/i) ||
+        xmlText.match(/"deviceName"\s*:\s*"([^"]+)"/i);
+
+      const serialMatch =
+        xmlText.match(/<serialNumber[^>]*>([^<]+)<\/serialNumber>/i) ||
+        xmlText.match(/"serialNumber"\s*:\s*"([^"]+)"/i);
+
+      const macMatch =
+        xmlText.match(/<macAddress[^>]*>([^<]+)<\/macAddress>/i) ||
+        xmlText.match(/"macAddress"\s*:\s*"([^"]+)"/i);
+
+      const fwMatch =
+        xmlText.match(/<firmwareVersion[^>]*>([^<]+)<\/firmwareVersion>/i) ||
+        xmlText.match(/"firmwareVersion"\s*:\s*"([^"]+)"/i);
+
+      cachedDeviceInfo = {
+        isConnected: true,
+        ip,
+        model: modelMatch ? modelMatch[1].trim() : 'DS-K1T320EFWX',
+        deviceName: nameMatch ? nameMatch[1].trim() : 'Access Controller',
+        serialNumber: serialMatch ? serialMatch[1].trim() : '--',
+        macAddress: macMatch ? macMatch[1].trim() : 'a4:d5:c2:1c:4d:83',
+        firmwareVersion: fwMatch ? fwMatch[1].trim() : 'V3.5.2',
+      };
+      lastDeviceInfoTs = now;
+      return cachedDeviceInfo;
     }
   } catch (err) { }
 
@@ -480,6 +489,8 @@ function buildDigestHeader(
   }
 }
 
+let cachedWorkingProtocol: 'http' | 'https' | null = null;
+
 function fetchHikvisionRequest(
   urlStr: string,
   options: { method?: string; headers?: Record<string, string>; body?: string } = {}
@@ -493,7 +504,7 @@ function fetchHikvisionRequest(
       const mod: any = isHttps ? https : require('http');
       const reqOptions: any = {
         hostname: parsedUrl.hostname,
-        port: isHttps ? (parsedUrl.port ? parseInt(parsedUrl.port, 10) : 443) : 80,
+        port: isHttps ? (parsedUrl.port ? parseInt(parsedUrl.port, 10) : 443) : (parsedUrl.port ? parseInt(parsedUrl.port, 10) : 80),
         path: pathWithSearch,
         method: options.method || 'GET',
         headers: {
@@ -503,10 +514,13 @@ function fetchHikvisionRequest(
         rejectUnauthorized: false,
       };
 
+      const reqStart = Date.now();
       const req = mod.request(reqOptions, (res: any) => {
         let data = '';
         res.on('data', (chunk: any) => { data += chunk; });
         res.on('end', () => {
+          const duration = Date.now() - reqStart;
+          console.log(`[API_CONNECTION_CLOSED] Server ISAPI Call -> Method: ${options.method || 'GET'} | Path: ${pathWithSearch} | Status: ${res.statusCode} | Duration: ${duration}ms`);
           resolve({
             status: res.statusCode || 500,
             headers: res.headers,
@@ -517,21 +531,49 @@ function fetchHikvisionRequest(
         });
       });
 
-      req.setTimeout(2500, () => {
-        req.destroy(new Error(`Hikvision connection timeout (2500ms on ${isHttps ? 'HTTPS' : 'HTTP'})`));
+      req.setTimeout(2000, () => {
+        req.destroy(new Error(`Hikvision connection timeout (2000ms on ${isHttps ? 'HTTPS' : 'HTTP'})`));
       });
 
-      req.on('error', (err: any) => reject(err));
+      req.on('error', (err: any) => {
+        const duration = Date.now() - reqStart;
+        console.error(`[API_CONNECTION_CLOSED_WITH_ERROR] Server ISAPI Call -> Path: ${pathWithSearch} | Error: ${err.message} | Duration: ${duration}ms`);
+        reject(err);
+      });
       if (postData) req.write(postData);
       req.end();
     });
   };
 
-  // Try HTTPS (port 443) first, fallback to HTTP (port 80) if HTTPS fails or times out
-  return tryTransport(true).catch(() => tryTransport(false));
+  if (cachedWorkingProtocol === 'http') {
+    return tryTransport(false).catch(() => {
+      cachedWorkingProtocol = null;
+      return tryTransport(true);
+    });
+  }
+
+  if (cachedWorkingProtocol === 'https') {
+    return tryTransport(true).catch(() => {
+      cachedWorkingProtocol = null;
+      return tryTransport(false);
+    });
+  }
+
+  // Try HTTP first (standard for Hikvision biometric terminals), fallback to HTTPS
+  return tryTransport(false)
+    .then((res) => {
+      cachedWorkingProtocol = 'http';
+      return res;
+    })
+    .catch(() => {
+      return tryTransport(true).then((res) => {
+        cachedWorkingProtocol = 'https';
+        return res;
+      });
+    });
 }
 
-export async function fetchHikvisionEvents(): Promise<{ data: any; deviceIp: string }> {
+export async function fetchHikvisionEvents(deep: boolean = false): Promise<{ data: any; deviceIp: string }> {
   const discovery = await discoverHikvisionDevice(false);
   const hikIp = discovery.ip;
 
@@ -539,10 +581,11 @@ export async function fetchHikvisionEvents(): Promise<{ data: any; deviceIp: str
   const url = `https://${hikIp}${uri}`;
 
   const now = new Date();
-  const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
-  const startYYYY = threeDaysAgo.getFullYear();
-  const startMM = String(threeDaysAgo.getMonth() + 1).padStart(2, '0');
-  const startDD = String(threeDaysAgo.getDate()).padStart(2, '0');
+  const daysBack = deep ? 30 : 3;
+  const pastDate = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000);
+  const startYYYY = pastDate.getFullYear();
+  const startMM = String(pastDate.getMonth() + 1).padStart(2, '0');
+  const startDD = String(pastDate.getDate()).padStart(2, '0');
   const startTime = `${startYYYY}-${startMM}-${startDD}T00:00:00+05:30`;
 
   const endYYYY = now.getFullYear();
@@ -550,15 +593,17 @@ export async function fetchHikvisionEvents(): Promise<{ data: any; deviceIp: str
   const endDD = String(now.getDate()).padStart(2, '0');
   const endTime = `${endYYYY}-${endMM}-${endDD}T23:59:59+05:30`;
 
-  // Paginated fetch through machine event buffer (up to 500 events)
+  // Realtime fast mode: 1 page (30 results); Deep mode: 12 pages (360+ results) with cached auth & pacing
   let allInfoList: any[] = [];
   let position = 0;
   const maxStep = 30;
+  const maxPages = deep ? 12 : 1;
+  let cachedAuthHeader: string | null = null;
 
-  for (let page = 0; page < 15; page++) {
+  for (let page = 0; page < maxPages; page++) {
     const postData = JSON.stringify({
       AcsEventCond: {
-        searchID: '1',
+        searchID: String(page + 1),
         searchResultPosition: position,
         maxResults: maxStep,
         major: 0,
@@ -569,24 +614,27 @@ export async function fetchHikvisionEvents(): Promise<{ data: any; deviceIp: str
       },
     });
 
-    const firstRes = await fetchHikvisionRequest(url, {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (cachedAuthHeader) {
+      headers['Authorization'] = cachedAuthHeader;
+    }
+
+    let firstRes = await fetchHikvisionRequest(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: postData,
     });
 
     let resData: any = null;
 
     if (firstRes.status === 401) {
-      const wwwAuth = firstRes.headers['www-authenticate'] || '';
-      const digestHeader = buildDigestHeader('POST', uri, wwwAuth, HIK_USER, HIK_PASS);
+      const wwwAuth = String(firstRes.headers['www-authenticate'] || '');
+      cachedAuthHeader = buildDigestHeader('POST', uri, wwwAuth, HIK_USER, HIK_PASS);
+      headers['Authorization'] = cachedAuthHeader;
 
       const secondRes = await fetchHikvisionRequest(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: digestHeader,
-        },
+        headers,
         body: postData,
       });
 
@@ -597,12 +645,21 @@ export async function fetchHikvisionEvents(): Promise<{ data: any; deviceIp: str
       resData = await firstRes.json();
     }
 
-    const chunk = resData?.AcsEvent?.InfoList || [];
-    if (chunk.length === 0) break;
+    const acsObj = resData?.AcsEvent;
+    const chunk = acsObj?.InfoList || [];
+    const statusStr = String(acsObj?.responseStatusStrg || '').toUpperCase();
+
+    if (chunk.length === 0 || statusStr === 'NO MATCH') break;
 
     allInfoList = allInfoList.concat(chunk);
-    if (chunk.length < maxStep) break;
     position += chunk.length;
+
+    console.log(`[HIKVISION ISAPI] Page #${page + 1}/${maxPages}: Fetched ${chunk.length} items (Total Accumulated: ${allInfoList.length}) | Status: ${statusStr || 'OK'}`);
+
+    // Small 35ms pacing pause between pages to keep microcontroller webserver socket buffer cool
+    if (page < maxPages - 1) {
+      await new Promise((r) => setTimeout(r, 35));
+    }
   }
 
   return {
@@ -619,15 +676,17 @@ export async function fetchHikvisionEvents(): Promise<{ data: any; deviceIp: str
 // REALTIME DIRECT MACHINE TO SUPABASE CLOUD & SHEETS SYNC
 // ----------------------------------------------------
 
-export async function syncHikvisionAttendance() {
+export async function syncHikvisionAttendance(deep: boolean = false) {
   try {
     const deviceInfo = await getHikvisionDeviceInfo();
     if (!deviceInfo.isConnected) {
       return {
         success: false,
+        isConnected: false,
         error: 'Machine is offline / disconnected. Machine API calls paused.',
         processed: 0,
         deviceIp: deviceInfo.ip,
+        deviceInfo,
       };
     }
 
@@ -653,10 +712,11 @@ export async function syncHikvisionAttendance() {
 
     let maxSerial = 0;
     const newRecords: AttendanceRecord[] = [];
+    const allFetchedMachineRecords: AttendanceRecord[] = [];
 
     let fetchResult;
     try {
-      fetchResult = await fetchHikvisionEvents();
+      fetchResult = await fetchHikvisionEvents(deep);
     } catch (err: any) {
       console.error('Hikvision fetch error:', err.message);
       return {
@@ -676,7 +736,7 @@ export async function syncHikvisionAttendance() {
           maxSerial = serial;
         }
 
-        if (event.major !== 5) continue;
+        if (event.major !== undefined && Number(event.major) !== 5 && Number(event.major) !== 0) continue;
 
         const employeeNo = (
           event.employeeNoString ||
@@ -717,29 +777,32 @@ export async function syncHikvisionAttendance() {
 
         const entry_id = `T${dateStamp}${numericCode}${serial}`;
 
+        const atn_token = `${parsedTime.yearShort}${parsedTime.month}${parsedTime.day}${numericCode}`;
+        const employee_id = employeeNo.includes('-') ? employeeNo : employeeNo.replace(/([A-Za-z]+)([0-9]+)/, '$1-$2');
+
+        const formattedRec: AttendanceRecord = {
+          entry_id,
+          atn_token,
+          employee_id,
+          user_name: userName,
+          attendance_date,
+          attendance_time,
+          serial_no: serial,
+        };
+
+        allFetchedMachineRecords.push(formattedRec);
+
         if (!processedEntryIds.has(entry_id)) {
           processedEntryIds.add(entry_id);
-
-          const atn_token = `${parsedTime.yearShort}${MM}${DD}${numericCode}`;
-          const employee_id = employeeNo.replace(/([A-Za-z]+)([0-9]+)/, '$1-$2');
-
-          newRecords.push({
-            entry_id,
-            atn_token,
-            employee_id,
-            user_name: userName,
-            attendance_date,
-            attendance_time,
-            serial_no: serial,
-          });
+          newRecords.push(formattedRec);
         }
       }
     }
 
     if (newRecords.length > 0) {
-      console.log(`⚡ DETECTED ${newRecords.length} NEW FINGERPRINT PUNCH(ES) FROM MACHINE! Updating Supabase Cloud & Sheets...`);
+      console.log(`⚡ GHOST SYNC: DETECTED ${newRecords.length} NEW PUNCH(ES) FROM MACHINE! Updating Supabase Cloud DB in background...`);
 
-      // Direct Instant Insert into Supabase Cloud Table (No local file backup)
+      // Ghost Sync: Background Insert into Supabase Cloud Table
       if (supabase) {
         try {
           const supaPayload = newRecords.map((r) => ({
@@ -755,12 +818,12 @@ export async function syncHikvisionAttendance() {
             .from('attendance_log')
             .upsert(supaPayload, { onConflict: 'entry_id' });
           if (sErr) {
-            console.error('Supabase Cloud sync error:', sErr.message);
+            console.error('Supabase Ghost Sync error:', sErr.message);
           } else {
-            console.log(`✅ Supabase Cloud synced/updated ${newRecords.length} record(s) on entry_id!`);
+            console.log(`✅ Supabase Cloud Ghost-Synced ${newRecords.length} record(s) on entry_id!`);
           }
 
-          // Auto-onboard / auto-register new employee in public.employees table if not already present
+          // Auto-onboard new employees in public.employees
           const uniqueEmpsMap = new Map<string, string>();
           newRecords.forEach((r) => {
             if (r.employee_id) {
@@ -782,14 +845,13 @@ export async function syncHikvisionAttendance() {
                 .from('employees')
                 .upsert(emp, { onConflict: 'employeeId', ignoreDuplicates: true });
             }
-            console.log(`✅ Auto-onboarded ${empUpsertPayload.length} employee(s) into public.employees table!`);
           }
         } catch (sErr: any) {
           console.error('Supabase insert exception:', sErr.message);
         }
       }
 
-      // Direct Instant Sync to Google Sheets
+      // Direct Sync to Google Sheets
       if (GOOGLE_SCRIPT_URL) {
         try {
           await fetch(GOOGLE_SCRIPT_URL, {
@@ -797,18 +859,20 @@ export async function syncHikvisionAttendance() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(newRecords),
           });
-          console.log(`✅ Google Sheets updated with ${newRecords.length} new fingerprint punch record(s)!`);
-        } catch (gErr: any) {
-          console.error('Google Sheets sync error:', gErr.message);
-        }
+        } catch {}
       }
     }
 
+    console.log(`[HIKVISION SYNC COMPLETE] Mode: ${deep ? 'DEEP' : 'FAST'} | Total Records: ${allFetchedMachineRecords.length} | New Punches: ${newRecords.length}`);
+
     return {
       success: true,
-      deviceIp,
+      isConnected: true,
+      records: allFetchedMachineRecords,
       newRecordsInserted: newRecords.length,
       lastSerial: maxSerial,
+      deviceIp,
+      deviceInfo,
     };
   } catch (error: any) {
     console.error('Sync process error:', error);
