@@ -1176,10 +1176,16 @@ export default function TerminalDashboard() {
                           </button>
                         </div>
 
-                        {/* Presets: TODAY / YESTERDAY / LAST 7 DAYS */}
+                        {/* Presets: TODAY / YESTERDAY / 3 DAYS / 7 DAYS */}
                         <div className="flex gap-1 mb-2.5">
                           <button
-                            onClick={() => setPresetDate('TODAY')}
+                            onClick={() => {
+                              const now = new Date();
+                              const iso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                              setStartDate(iso);
+                              setEndDate(iso);
+                              setIsCalendarOpen(false);
+                            }}
                             className={`flex-1 py-1 rounded text-[10px] font-bold border transition-colors ${
                               isLight
                                 ? 'bg-emerald-50 text-emerald-700 border-emerald-400 hover:bg-emerald-100'
@@ -1189,17 +1195,50 @@ export default function TerminalDashboard() {
                             [TODAY]
                           </button>
                           <button
-                            onClick={() => setPresetDate('YESTERDAY')}
+                            onClick={() => {
+                              const now = new Date();
+                              const yest = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+                              const iso = `${yest.getFullYear()}-${String(yest.getMonth() + 1).padStart(2, '0')}-${String(yest.getDate()).padStart(2, '0')}`;
+                              setStartDate(iso);
+                              setEndDate(iso);
+                              setIsCalendarOpen(false);
+                            }}
                             className={`flex-1 py-1 rounded text-[10px] font-bold border transition-colors ${
                               isLight
                                 ? 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
                                 : 'bg-slate-900 text-slate-400 border-slate-700 hover:bg-slate-800'
                             }`}
                           >
-                            [YESTERDAY]
+                            [YEST]
                           </button>
                           <button
-                            onClick={() => setPresetDate('LAST7DAYS')}
+                            onClick={() => {
+                              const now = new Date();
+                              const endIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                              const threeAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+                              const startIso = `${threeAgo.getFullYear()}-${String(threeAgo.getMonth() + 1).padStart(2, '0')}-${String(threeAgo.getDate()).padStart(2, '0')}`;
+                              setStartDate(startIso);
+                              setEndDate(endIso);
+                              setIsCalendarOpen(false);
+                            }}
+                            className={`flex-1 py-1 rounded text-[10px] font-bold border transition-colors ${
+                              isLight
+                                ? 'bg-amber-50 text-amber-800 border-amber-400 hover:bg-amber-100'
+                                : 'bg-amber-950/80 text-amber-300 border-amber-700/80 hover:bg-amber-900'
+                            }`}
+                          >
+                            [3 DAYS]
+                          </button>
+                          <button
+                            onClick={() => {
+                              const now = new Date();
+                              const endIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                              const sevenAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                              const startIso = `${sevenAgo.getFullYear()}-${String(sevenAgo.getMonth() + 1).padStart(2, '0')}-${String(sevenAgo.getDate()).padStart(2, '0')}`;
+                              setStartDate(startIso);
+                              setEndDate(endIso);
+                              setIsCalendarOpen(false);
+                            }}
                             className={`flex-1 py-1 rounded text-[10px] font-bold border transition-colors ${
                               isLight
                                 ? 'bg-sky-50 text-sky-700 border-sky-400 hover:bg-sky-100'

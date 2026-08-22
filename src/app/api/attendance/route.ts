@@ -81,7 +81,18 @@ export async function GET(request: Request) {
     }
 
     if (filterDateValues.length === 0) {
-      if (!dateParam || dateParam === 'TODAY' || dateParam === todayStrIso) {
+      if (dateParam === 'LAST3DAYS') {
+        const datesList: string[] = [];
+        for (let i = 0; i < 3; i++) {
+          const dObj = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+          const y = dObj.getFullYear();
+          const m = String(dObj.getMonth() + 1).padStart(2, '0');
+          const d = String(dObj.getDate()).padStart(2, '0');
+          const shortY = String(y).slice(-2);
+          datesList.push(`${d}/${m}/${y}`, `${d}/${m}/${shortY}`, `${y}-${m}-${d}`);
+        }
+        filterDateValues = datesList;
+      } else if (!dateParam || dateParam === 'TODAY' || dateParam === todayStrIso) {
         filterDateValues = [todayStrFull, todayStr, todayStrIso];
       } else if (dateParam && dateParam !== 'ALL') {
         const parts = dateParam.split('-');

@@ -371,7 +371,7 @@ let lastDeviceInfoTs = 0;
 
 export async function getHikvisionDeviceInfo(): Promise<HikvisionDeviceInfo> {
   const now = Date.now();
-  if (cachedDeviceInfo && now - lastDeviceInfoTs < 10000) {
+  if (cachedDeviceInfo && now - lastDeviceInfoTs < 5000) {
     return cachedDeviceInfo;
   }
 
@@ -380,7 +380,7 @@ export async function getHikvisionDeviceInfo(): Promise<HikvisionDeviceInfo> {
   const url = `https://${ip}${uri}`;
 
   try {
-    const firstRes = await fetchHikvisionHttps(url, { method: 'GET' }).catch(() => null);
+    const firstRes = await fetchHikvisionRequest(url, { method: 'GET' }).catch(() => null);
 
     if (!firstRes) {
       cachedDeviceInfo = {
@@ -400,7 +400,7 @@ export async function getHikvisionDeviceInfo(): Promise<HikvisionDeviceInfo> {
       const wwwAuth = firstRes.headers['www-authenticate'] || '';
       const digestHeader = buildDigestHeader('GET', uri, wwwAuth, HIK_USER, HIK_PASS);
 
-      const secondRes = await fetchHikvisionHttps(url, {
+      const secondRes = await fetchHikvisionRequest(url, {
         method: 'GET',
         headers: { Authorization: digestHeader },
       }).catch(() => null);
@@ -452,10 +452,10 @@ function buildDigestHeader(
   user: string,
   pass: string
 ): string {
-  const realmMatch = wwwAuthHeader.match(/realm="([^"]+)"/);
-  const nonceMatch = wwwAuthHeader.match(/nonce="([^"]+)"/);
-  const qopMatch = wwwAuthHeader.match(/qop="([^"]+)"/);
-  const opaqueMatch = wwwAuthHeader.match(/opaque="([^"]+)"/);
+  const realmMatch = wwwAuthHeader.match(/realm="([^"]+)"/i);
+  const nonceMatch = wwwAuthHeader.match(/nonce="([^"]+)"/i);
+  const qopMatch = wwwAuthHeader.match(/qop="([^"]+)"/i);
+  const opaqueMatch = wwwAuthHeader.match(/opaque="([^"]+)"/i);
 
   const realm = realmMatch ? realmMatch[1] : '';
   const nonce = nonceMatch ? nonceMatch[1] : '';
@@ -480,48 +480,55 @@ function buildDigestHeader(
   }
 }
 
-function fetchHikvisionHttps(
+function fetchHikvisionRequest(
   urlStr: string,
   options: { method?: string; headers?: Record<string, string>; body?: string } = {}
 ): Promise<{ status: number; headers: any; ok: boolean; json: () => Promise<any>; text: () => Promise<string> }> {
-  return new Promise((resolve, reject) => {
-    const parsedUrl = new URL(urlStr);
-    const postData = options.body || '';
+  const parsedUrl = new URL(urlStr);
+  const pathWithSearch = parsedUrl.pathname + parsedUrl.search;
+  const postData = options.body || '';
 
-    const reqOptions: https.RequestOptions = {
-      hostname: parsedUrl.hostname,
-      port: parsedUrl.port ? parseInt(parsedUrl.port, 10) : 443,
-      path: parsedUrl.pathname + parsedUrl.search,
-      method: options.method || 'GET',
-      headers: {
-        ...(options.headers || {}),
-        'Content-Length': String(Buffer.byteLength(postData)),
-      },
-      rejectUnauthorized: false,
-    };
+  const tryTransport = (isHttps: boolean): Promise<any> => {
+    return new Promise((resolve, reject) => {
+      const mod: any = isHttps ? https : require('http');
+      const reqOptions: any = {
+        hostname: parsedUrl.hostname,
+        port: isHttps ? (parsedUrl.port ? parseInt(parsedUrl.port, 10) : 443) : 80,
+        path: pathWithSearch,
+        method: options.method || 'GET',
+        headers: {
+          ...(options.headers || {}),
+          'Content-Length': String(Buffer.byteLength(postData)),
+        },
+        rejectUnauthorized: false,
+      };
 
-    const req = https.request(reqOptions, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        resolve({
-          status: res.statusCode || 500,
-          headers: res.headers,
-          ok: !!(res.statusCode && res.statusCode >= 200 && res.statusCode < 300),
-          text: () => Promise.resolve(data),
-          json: () => Promise.resolve(JSON.parse(data || '{}')),
+      const req = mod.request(reqOptions, (res: any) => {
+        let data = '';
+        res.on('data', (chunk: any) => { data += chunk; });
+        res.on('end', () => {
+          resolve({
+            status: res.statusCode || 500,
+            headers: res.headers,
+            ok: !!(res.statusCode && res.statusCode >= 200 && res.statusCode < 300),
+            text: () => Promise.resolve(data),
+            json: () => Promise.resolve(JSON.parse(data || '{}')),
+          });
         });
       });
-    });
 
-    req.setTimeout(400, () => {
-      req.destroy(new Error('Hikvision connection timeout (400ms)'));
-    });
+      req.setTimeout(2500, () => {
+        req.destroy(new Error(`Hikvision connection timeout (2500ms on ${isHttps ? 'HTTPS' : 'HTTP'})`));
+      });
 
-    req.on('error', (err) => reject(err));
-    if (postData) req.write(postData);
-    req.end();
-  });
+      req.on('error', (err: any) => reject(err));
+      if (postData) req.write(postData);
+      req.end();
+    });
+  };
+
+  // Try HTTPS (port 443) first, fallback to HTTP (port 80) if HTTPS fails or times out
+  return tryTransport(true).catch(() => tryTransport(false));
 }
 
 export async function fetchHikvisionEvents(): Promise<{ data: any; deviceIp: string }> {
@@ -543,49 +550,69 @@ export async function fetchHikvisionEvents(): Promise<{ data: any; deviceIp: str
   const endDD = String(now.getDate()).padStart(2, '0');
   const endTime = `${endYYYY}-${endMM}-${endDD}T23:59:59+05:30`;
 
-  // Fetch events for Access Control (Major 5) for the last 3 days
-  const postData = JSON.stringify({
-    AcsEventCond: {
-      searchID: '1',
-      searchResultPosition: 0,
-      maxResults: 500,
-      major: 5,
-      minor: 0,
-      startTime: startTime,
-      endTime: endTime,
-      timeReverseOrder: true,
-    },
-  });
+  // Paginated fetch through machine event buffer (up to 500 events)
+  let allInfoList: any[] = [];
+  let position = 0;
+  const maxStep = 30;
 
-  const firstRes = await fetchHikvisionHttps(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: postData,
-  });
-
-  if (firstRes.status === 401) {
-    const wwwAuth = firstRes.headers['www-authenticate'] || '';
-    const digestHeader = buildDigestHeader('POST', uri, wwwAuth, HIK_USER, HIK_PASS);
-
-    const secondRes = await fetchHikvisionHttps(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: digestHeader,
+  for (let page = 0; page < 15; page++) {
+    const postData = JSON.stringify({
+      AcsEventCond: {
+        searchID: '1',
+        searchResultPosition: position,
+        maxResults: maxStep,
+        major: 0,
+        minor: 0,
+        startTime: startTime,
+        endTime: endTime,
+        timeReverseOrder: true,
       },
+    });
+
+    const firstRes = await fetchHikvisionRequest(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: postData,
     });
 
-    if (!secondRes.ok) {
-      throw new Error(`Hikvision device (${hikIp}) returned HTTP ${secondRes.status}`);
+    let resData: any = null;
+
+    if (firstRes.status === 401) {
+      const wwwAuth = firstRes.headers['www-authenticate'] || '';
+      const digestHeader = buildDigestHeader('POST', uri, wwwAuth, HIK_USER, HIK_PASS);
+
+      const secondRes = await fetchHikvisionRequest(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: digestHeader,
+        },
+        body: postData,
+      });
+
+      if (secondRes.ok) {
+        resData = await secondRes.json();
+      }
+    } else if (firstRes.ok) {
+      resData = await firstRes.json();
     }
 
-    return { data: await secondRes.json(), deviceIp: hikIp };
-  } else if (firstRes.ok) {
-    return { data: await firstRes.json(), deviceIp: hikIp };
-  } else {
-    throw new Error(`Hikvision device (${hikIp}) initial request failed with status ${firstRes.status}`);
+    const chunk = resData?.AcsEvent?.InfoList || [];
+    if (chunk.length === 0) break;
+
+    allInfoList = allInfoList.concat(chunk);
+    if (chunk.length < maxStep) break;
+    position += chunk.length;
   }
+
+  return {
+    data: {
+      AcsEvent: {
+        InfoList: allInfoList,
+      },
+    },
+    deviceIp: hikIp,
+  };
 }
 
 // ----------------------------------------------------
