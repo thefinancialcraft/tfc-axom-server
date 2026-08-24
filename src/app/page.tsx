@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import {
   Terminal,
@@ -35,7 +35,9 @@ import {
   SlidersHorizontal,
   Radio,
   Loader2,
-  Download
+  Download,
+  XCircle,
+  UserX
 } from 'lucide-react';
 
 interface RecordItem {
@@ -73,6 +75,20 @@ export default function TerminalDashboard() {
   const [allRecords, setAllRecords] = useState<RecordItem[]>([]);
   const [todayRecordsList, setTodayRecordsList] = useState<RecordItem[]>([]);
   const [dateFilter, setDateFilter] = useState<'TODAY' | 'ALL' | 'CUSTOM'>('TODAY');
+  const [selectedUserFilter, setSelectedUserFilter] = useState<string>('ALL');
+  const [isUserDropdownOpen, setIsUserDropdownOpen] = useState<boolean>(false);
+  const [userDropdownSearch, setUserDropdownSearch] = useState<string>('');
+  const userDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (userDropdownRef.current && !userDropdownRef.current.contains(e.target as Node)) {
+        setIsUserDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
   const [startDate, setStartDate] = useState<string>(() => {
     const now = new Date();
     const YYYY = now.getFullYear();
@@ -193,6 +209,7 @@ export default function TerminalDashboard() {
   const [isCheckingStatus, setIsCheckingStatus] = useState<boolean>(false);
   const [inactiveEmpIds, setInactiveEmpIds] = useState<Set<string>>(new Set());
   const [activeEmployeesList, setActiveEmployeesList] = useState<{ employeeId: string; employeeName: string }[]>([]);
+  const [inactiveEmployeesList, setInactiveEmployeesList] = useState<{ employeeId: string; employeeName: string }[]>([]);
   const [isProbeModalOpen, setIsProbeModalOpen] = useState<boolean>(false);
   const [isHostPc, setIsHostPc] = useState<boolean>(false);
   const [hostPcCloudOnline, setHostPcCloudOnline] = useState<boolean>(false);
@@ -240,9 +257,14 @@ export default function TerminalDashboard() {
         if (data.success && Array.isArray(data.employees)) {
           const inactive = new Set<string>();
           const activeList: { employeeId: string; employeeName: string }[] = [];
+          const inactiveList: { employeeId: string; employeeName: string }[] = [];
           data.employees.forEach((emp: any) => {
             if (emp.is_active === false) {
               inactive.add(emp.employeeId);
+              inactiveList.push({
+                employeeId: emp.employeeId,
+                employeeName: emp.employeeName || emp.employeeId,
+              });
             } else {
               activeList.push({
                 employeeId: emp.employeeId,
@@ -252,6 +274,7 @@ export default function TerminalDashboard() {
           });
           setInactiveEmpIds(inactive);
           setActiveEmployeesList(activeList);
+          setInactiveEmployeesList(inactiveList);
         }
       }
     } catch {}
@@ -818,12 +841,40 @@ export default function TerminalDashboard() {
     return numA !== '' && numA === numB;
   };
 
-  // Active records filtered by Date Range & Active Employee Status (Inactive employees hidden)
-  const activeSourceRecords = allRecords.filter(
-    (r) =>
-      isRecordMatchingRange(r.attendance_date, startDate, endDate) &&
-      !inactiveEmpIds.has(r.employee_id)
-  );
+  // Dynamically compute all unique active employees in records/system for User Filter
+  const availableUsersList = useMemo(() => {
+    const userMap = new Map<string, { id: string; name: string }>();
+    allRecords.forEach((r) => {
+      if (r.employee_id && !inactiveEmpIds.has(r.employee_id)) {
+        if (!userMap.has(r.employee_id)) {
+          userMap.set(r.employee_id, { id: r.employee_id, name: r.user_name || r.employee_id });
+        }
+      }
+    });
+    return Array.from(userMap.values()).sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
+  }, [allRecords, inactiveEmpIds]);
+
+  const filteredUserOptions = useMemo(() => {
+    if (!userDropdownSearch.trim()) return availableUsersList;
+    const query = userDropdownSearch.toLowerCase();
+    return availableUsersList.filter(
+      (u) => u.name.toLowerCase().includes(query) || u.id.toLowerCase().includes(query)
+    );
+  }, [availableUsersList, userDropdownSearch]);
+
+  // Active records filtered by Date Range, Selected User Filter & Active Employee Status
+  const activeSourceRecords = allRecords.filter((r) => {
+    const matchesDate = isRecordMatchingRange(r.attendance_date, startDate, endDate);
+    if (!matchesDate) return false;
+
+    if (selectedUserFilter === 'INACTIVE_USERS') {
+      return inactiveEmpIds.has(r.employee_id);
+    }
+
+    if (inactiveEmpIds.has(r.employee_id)) return false;
+    if (selectedUserFilter === 'ALL') return true;
+    return matchesEmpId(r.employee_id, selectedUserFilter);
+  });
 
   const filteredRecords = activeSourceRecords.filter(
     (item) =>
@@ -872,7 +923,46 @@ export default function TerminalDashboard() {
     const grouped: GroupedAttendance[] = [];
     const matchedPunchEntryIds = new Set<string>();
 
-    // 1. Process all active employees from master active employees list
+    if (selectedUserFilter === 'INACTIVE_USERS') {
+      inactiveEmployeesList.forEach((emp) => {
+        const matchesSearch =
+          search === '' ||
+          emp.employeeName.toLowerCase().includes(search.toLowerCase()) ||
+          emp.employeeId.toLowerCase().includes(search.toLowerCase());
+        if (!matchesSearch) return;
+
+        const list = filteredRecords.filter((item) => matchesEmpId(item.employee_id, emp.employeeId));
+        if (list.length > 0) {
+          const sorted = [...list].sort((a, b) => getPunchSecondsOfDay(a) - getPunchSecondsOfDay(b));
+          const first = sorted[0];
+          const last = sorted[sorted.length - 1];
+          grouped.push({
+            employee_id: emp.employeeId,
+            user_name: emp.employeeName || first.user_name,
+            attendance_date: first.attendance_date || todayDate || '--',
+            check_in_time: first.attendance_time,
+            check_out_time: sorted.length > 1 ? last.attendance_time : '--',
+            total_punches: sorted.length,
+            latest_punch_seconds: getPunchSecondsOfDay(last),
+            has_punched: true,
+          });
+        } else {
+          grouped.push({
+            employee_id: emp.employeeId,
+            user_name: emp.employeeName,
+            attendance_date: todayDate || '--',
+            check_in_time: '--',
+            check_out_time: '--',
+            total_punches: 0,
+            latest_punch_seconds: -1,
+            has_punched: false,
+          });
+        }
+      });
+      return grouped.sort((a, b) => a.employee_id.localeCompare(b.employee_id, undefined, { numeric: true }));
+    }
+
+    // 1. Process active employees from master active employees list matching User Filter
     activeEmployeesList.forEach((emp) => {
       // Filter by search query
       const matchesSearch =
@@ -880,7 +970,11 @@ export default function TerminalDashboard() {
         emp.employeeName.toLowerCase().includes(search.toLowerCase()) ||
         emp.employeeId.toLowerCase().includes(search.toLowerCase());
 
-      if (!matchesSearch) return;
+      // Filter by selected user dropdown
+      const matchesUserFilter =
+        selectedUserFilter === 'ALL' || matchesEmpId(emp.employeeId, selectedUserFilter);
+
+      if (!matchesSearch || !matchesUserFilter) return;
 
       const list = filteredRecords.filter((item) =>
         matchesEmpId(item.employee_id, emp.employeeId)
@@ -1365,6 +1459,185 @@ export default function TerminalDashboard() {
                     <ListFilter className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                     <span>[RAW LOGS]</span>
                   </button>
+                </div>
+
+                <span className="text-slate-400 hidden sm:inline">|</span>
+
+                {/* Custom User Filter Dropdown */}
+                <div className="flex items-center gap-1 w-full sm:w-auto">
+                  <div className="relative flex items-center flex-1 sm:flex-initial" ref={userDropdownRef}>
+                    <button
+                      type="button"
+                      onClick={() => setIsUserDropdownOpen(!isUserDropdownOpen)}
+                      className={`flex items-center justify-between gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-1 rounded border-2 font-mono font-bold text-[10px] sm:text-xs transition-all active:scale-95 w-full sm:w-auto truncate ${
+                        selectedUserFilter === 'INACTIVE_USERS'
+                          ? isLight
+                            ? 'bg-red-50 border-red-400 text-red-700'
+                            : 'bg-red-950/80 border-red-600 text-red-300'
+                          : selectedUserFilter !== 'ALL'
+                          ? isLight
+                            ? 'bg-sky-100 border-sky-400 text-sky-900'
+                            : 'bg-sky-950 text-sky-300 border-sky-500/80'
+                          : isLight
+                          ? 'bg-white border-slate-300 text-slate-800 hover:bg-slate-100'
+                          : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 truncate">
+                        {selectedUserFilter === 'INACTIVE_USERS' ? (
+                          <UserX className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                        ) : (
+                          <UserCheck className={`w-3.5 h-3.5 shrink-0 ${isLight ? 'text-sky-700' : 'text-sky-400'}`} />
+                        )}
+                        <span className="truncate">
+                          {selectedUserFilter === 'ALL'
+                            ? `ALL USERS (${availableUsersList.length})`
+                            : selectedUserFilter === 'INACTIVE_USERS'
+                            ? `INACTIVE USERS (${inactiveEmpIds.size})`
+                            : availableUsersList.find((u) => matchesEmpId(u.id, selectedUserFilter))
+                            ? `#${selectedUserFilter} - ${availableUsersList.find((u) => matchesEmpId(u.id, selectedUserFilter))?.name}`
+                            : `#${selectedUserFilter}`}
+                        </span>
+                      </div>
+                      <ChevronDown className={`w-3 h-3 shrink-0 transition-transform duration-200 ${isUserDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {/* Custom Dropdown Options Modal (Clean border, no glow) */}
+                    {isUserDropdownOpen && (
+                      <div className={`absolute left-0 sm:left-auto right-0 mt-1 top-full z-50 p-2 rounded-lg border-2 shadow-lg w-64 max-w-xs font-mono text-xs ${
+                        isLight
+                          ? 'bg-white border-slate-300 text-slate-900'
+                          : 'bg-[#090f1f] border-slate-700 text-sky-200'
+                      }`}>
+                        {/* Dropdown Internal Search Input */}
+                        <div className="relative mb-2">
+                          <Search className={`w-3.5 h-3.5 absolute left-2 top-2 ${isLight ? 'text-slate-400' : 'text-slate-500'}`} />
+                          <input
+                            type="text"
+                            value={userDropdownSearch}
+                            onChange={(e) => setUserDropdownSearch(e.target.value)}
+                            placeholder="Filter user name or ID..."
+                            className={`w-full pl-7 pr-2 py-1 rounded border text-[11px] font-mono outline-none ${
+                              isLight
+                                ? 'bg-slate-50 border-slate-300 text-slate-900 focus:border-sky-500'
+                                : 'bg-[#050914] border-slate-700 text-sky-300 focus:border-sky-400'
+                            }`}
+                            autoFocus
+                          />
+                        </div>
+
+                        {/* User Options List */}
+                        <div className="max-h-48 overflow-y-auto space-y-0.5 scrollbar-thin">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedUserFilter('ALL');
+                              setIsUserDropdownOpen(false);
+                              setUserDropdownSearch('');
+                              addLog(`USER_FILTER: Reset to ALL USERS`);
+                            }}
+                            className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between font-bold text-[11px] transition-colors ${
+                              selectedUserFilter === 'ALL'
+                                ? isLight
+                                  ? 'bg-emerald-100 text-emerald-900 border border-emerald-400'
+                                  : 'bg-emerald-950 text-emerald-300 border border-emerald-600/80'
+                                : isLight
+                                ? 'hover:bg-slate-100 text-slate-800'
+                                : 'hover:bg-sky-950/60 text-slate-300'
+                            }`}
+                          >
+                            <span>ALL USERS</span>
+                            <span className="text-[10px] opacity-75">({availableUsersList.length})</span>
+                          </button>
+
+                          {filteredUserOptions.length === 0 ? (
+                            <div className="py-3 text-center text-[10px] text-slate-500">
+                              No matching users found
+                            </div>
+                          ) : (
+                            filteredUserOptions.map((u) => {
+                              const isSelected = matchesEmpId(u.id, selectedUserFilter);
+                              return (
+                                <button
+                                  key={u.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedUserFilter(u.id);
+                                    setIsUserDropdownOpen(false);
+                                    setUserDropdownSearch('');
+                                    addLog(`USER_FILTER: Selected [${u.name} - #${u.id}]`);
+                                  }}
+                                  className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between text-[11px] transition-colors ${
+                                    isSelected
+                                      ? isLight
+                                        ? 'bg-sky-100 text-sky-900 font-bold border border-sky-400'
+                                        : 'bg-sky-950 text-sky-300 font-bold border border-sky-500/80'
+                                      : isLight
+                                      ? 'hover:bg-slate-100 text-slate-800'
+                                      : 'hover:bg-sky-950/60 text-slate-300'
+                                  }`}
+                                >
+                                  <span className="truncate">{u.name}</span>
+                                  <span className={`text-[10px] font-bold px-1 rounded shrink-0 ${
+                                    isLight ? 'bg-slate-200 text-slate-700' : 'bg-slate-800 text-sky-400'
+                                  }`}>
+                                    #{u.id}
+                                  </span>
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+
+                        {/* Bottom Special Option: INACTIVE USERS (Red Text) */}
+                        <div className="pt-1.5 mt-1 border-t border-slate-700/80">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedUserFilter('INACTIVE_USERS');
+                              setIsUserDropdownOpen(false);
+                              setUserDropdownSearch('');
+                              addLog(`USER_FILTER: Selected [INACTIVE USERS]`);
+                            }}
+                            className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between text-[11px] font-bold transition-colors ${
+                              selectedUserFilter === 'INACTIVE_USERS'
+                                ? isLight
+                                  ? 'bg-red-100 text-red-800 border border-red-400'
+                                  : 'bg-red-950 text-red-300 border border-red-600/80'
+                                : isLight
+                                ? 'hover:bg-red-50 text-red-600'
+                                : 'hover:bg-red-950/40 text-red-400'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5 text-red-400">
+                              <UserX className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                              <span className="text-red-400 font-bold">INACTIVE USERS</span>
+                            </div>
+                            <span className="text-[10px] font-bold text-red-400 px-1 rounded bg-red-950/80 border border-red-800/80">
+                              ({inactiveEmpIds.size})
+                            </span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {selectedUserFilter !== 'ALL' && (
+                    <button
+                      onClick={() => {
+                        setSelectedUserFilter('ALL');
+                        addLog(`USER_FILTER: Reset to ALL USERS`);
+                      }}
+                      title="Clear User Filter"
+                      className={`p-1 rounded border-2 text-[10px] font-bold transition-all active:scale-95 shrink-0 ${
+                        isLight
+                          ? 'bg-red-50 border-red-300 text-red-700 hover:bg-red-100'
+                          : 'bg-red-950/80 border-red-600/80 text-red-300 hover:bg-red-900/80'
+                      }`}
+                    >
+                      <XCircle className="w-3.5 h-3.5 shrink-0" />
+                    </button>
+                  )}
                 </div>
 
                 <span className="text-slate-400 hidden sm:inline">|</span>
