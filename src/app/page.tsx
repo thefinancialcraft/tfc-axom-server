@@ -5,6 +5,7 @@ import Link from 'next/link';
 import {
   Terminal,
   RotateCw,
+  RefreshCw,
   Search,
   Database,
   Wifi,
@@ -31,6 +32,7 @@ import {
   ChevronRight,
   ChevronDown,
   Settings,
+  SlidersHorizontal,
   Radio,
   Loader2
 } from 'lucide-react';
@@ -187,10 +189,12 @@ export default function TerminalDashboard() {
   const [theme, setTheme] = useState<'DARK' | 'LIGHT'>('DARK');
 
   const [deviceInfo, setDeviceInfo] = useState<DeviceInfoState | null>(null);
-  const [isCheckingStatus, setIsCheckingStatus] = useState<boolean>(true);
+  const [isCheckingStatus, setIsCheckingStatus] = useState<boolean>(false);
   const [inactiveEmpIds, setInactiveEmpIds] = useState<Set<string>>(new Set());
   const [activeEmployeesList, setActiveEmployeesList] = useState<{ employeeId: string; employeeName: string }[]>([]);
-  const [isProbeModalOpen, setIsProbeModalOpen] = useState<boolean>(true);
+  const [isProbeModalOpen, setIsProbeModalOpen] = useState<boolean>(false);
+  const [isHostPc, setIsHostPc] = useState<boolean>(false);
+  const [hostPcCloudOnline, setHostPcCloudOnline] = useState<boolean>(false);
   const [probeAttemptCount, setProbeAttemptCount] = useState<number>(1);
   const [probeTimerSec, setProbeTimerSec] = useState<number>(10);
   const [isDirectMachineMode, setIsDirectMachineMode] = useState<boolean>(false);
@@ -391,50 +395,152 @@ export default function TerminalDashboard() {
     }
   }, [addLog, deviceIp, startDate, endDate]);
 
-  const triggerManualSync = async () => {
-    setIsSyncing(true);
-    addLog(`EXEC: Triggering manual device sync command -> ./hikvision_sync --device=${deviceIp}...`);
+  const [activeCloudCmd, setActiveCloudCmd] = useState<{ id: string; type: string; status: string; progress: string } | null>(null);
+
+  const dispatchCloudCommand = async (commandType: 'SYNC_DAILY' | 'SYNC_WEEKLY' | 'SYNC_MONTHLY' | 'SYNC_CUSTOM') => {
     try {
-      const res = await fetch('/api/sync', { method: 'POST' });
+      setIsSyncing(true);
+      const label = commandType === 'SYNC_DAILY' ? 'Daily (24h)' : commandType === 'SYNC_WEEKLY' ? 'Weekly (7 Days)' : commandType === 'SYNC_MONTHLY' ? 'Monthly (30 Days)' : 'Custom Range';
+      
+      // State 1: Request Initialize
+      setActiveCloudCmd({
+        id: 'INITIATING',
+        type: commandType,
+        status: 'INITIATED',
+        progress: 'Request Initialize 🚀',
+      });
+      addLog(`CLIENT_ACTION: [Request Initialize] Dispatching command [${label}]...`);
+
+      const res = await fetch('/api/relay-command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          command: commandType,
+          startDate: startDate,
+          endDate: endDate || startDate,
+        }),
+      });
+
       if (res.ok) {
         const data = await res.json();
-        if (data.deviceIp) setDeviceIp(data.deviceIp);
-        const count = data.newRecordsInserted || 0;
-        const maxS = data.lastSerial || 0;
-        addLog(`SUCCESS: Sync complete on IP ${data.deviceIp || deviceIp}. Inserted ${count} new record(s). Max Serial: #${maxS}`);
-        setLastSyncTime(new Date().toLocaleTimeString());
-        await fetchAttendanceData();
-      } else {
-        addLog(`ERROR: Device sync API returned HTTP ${res.status}`);
+        if (data.success && data.command) {
+          const cmdObj = data.command;
+          // State 2: Request Processing (when DB receives command)
+          setActiveCloudCmd({
+            id: cmdObj.id,
+            type: commandType,
+            status: 'PENDING',
+            progress: 'Request Processing ⚡',
+          });
+          addLog(`SUPABASE_DB: [Request Processing] Command inserted in DB, waiting for Host PC Relay...`);
+
+          // Poll for command status transitions
+          let checkAttempts = 0;
+          const pollInterval = setInterval(async () => {
+            checkAttempts++;
+            try {
+              const statusRes = await fetch(`/api/relay-command?id=${cmdObj.id}`);
+              if (statusRes.ok) {
+                const statusData = await statusRes.json();
+                if (statusData.success) {
+                  if (statusData.latestCommand) {
+                    const currentCmd = statusData.latestCommand;
+                    const currentStatus = String(currentCmd.status || '').toUpperCase();
+                    
+                    let displayProgress = currentCmd.progress;
+                    if (currentStatus === 'PENDING') {
+                      displayProgress = 'Request Processing ⚡';
+                    } else if (currentStatus === 'COMPLETED') {
+                      displayProgress = 'Request Done ✅';
+                    } else if (currentStatus === 'FAILED') {
+                      displayProgress = 'Request Terminated (See Logs) ❌';
+                    }
+
+                    setActiveCloudCmd({
+                      id: currentCmd.id,
+                      type: commandType,
+                      status: currentStatus,
+                      progress: displayProgress,
+                    });
+
+                    if (currentStatus === 'COMPLETED' || currentStatus === 'FAILED') {
+                      clearInterval(pollInterval);
+                      setIsSyncing(false);
+                      if (currentStatus === 'COMPLETED') {
+                        addLog(`🎉 CLOUD_BRIDGE: [Request Done] ${currentCmd.progress}`);
+                        await fetchAttendanceData();
+                      } else {
+                        addLog(`ERROR: [Request Terminated] ${currentCmd.progress} - See Terminal Logs!`);
+                      }
+                      setTimeout(() => setActiveCloudCmd(null), 3000);
+                    }
+                  } else {
+                    // Command completed/cleaned up
+                    clearInterval(pollInterval);
+                    setIsSyncing(false);
+                    setActiveCloudCmd({
+                      id: cmdObj.id,
+                      type: commandType,
+                      status: 'COMPLETED',
+                      progress: 'Request Done ✅',
+                    });
+                    setTimeout(() => setActiveCloudCmd(null), 3000);
+                  }
+                }
+              }
+            } catch {}
+
+            if (checkAttempts >= 35) {
+              clearInterval(pollInterval);
+              setIsSyncing(false);
+              addLog(`ERROR: [Request Terminated] Command timed out after 50 seconds - Check Terminal Logs!`);
+              setActiveCloudCmd({
+                id: cmdObj.id,
+                type: commandType,
+                status: 'FAILED',
+                progress: 'Request Terminated (See Logs) ❌',
+              });
+              setTimeout(() => setActiveCloudCmd(null), 3500);
+            }
+          }, 1500);
+        } else {
+          addLog(`ERROR: [Request Terminated] ${data.error || 'Check Supabase Connection'}`);
+          setIsSyncing(false);
+          setActiveCloudCmd({
+            id: 'ERR',
+            type: commandType,
+            status: 'FAILED',
+            progress: 'Request Terminated (See Logs) ❌',
+          });
+          setTimeout(() => setActiveCloudCmd(null), 3500);
+        }
       }
     } catch (err: any) {
-      addLog(`FATAL: Device sync exception - ${err.message}`);
+      addLog(`ERROR: Failed to dispatch cloud command - ${err.message}`);
+      setIsSyncing(false);
+      setActiveCloudCmd(null);
+    }
+  };
+
+  const triggerManualSync = async () => {
+    setIsSyncing(true);
+    addLog(`EXEC: Triggering attendance refresh from Supabase Cloud DB...`);
+    try {
+      await fetchAttendanceData();
+      setLastSyncTime(new Date().toLocaleTimeString());
+      addLog(`SUCCESS: Cloud DB data refreshed.`);
+    } catch (err: any) {
+      addLog(`ERROR: Refresh exception - ${err.message}`);
     } finally {
       setIsSyncing(false);
     }
   };
 
-  const scanLocalNetwork = async () => {
-    resetOfflineRetryState();
+  const refreshCloudData = async () => {
     setIsScanning(true);
-    addLog(`SCANNING: Executing SADP UDP multicast & subnet discovery scan...`);
+    addLog(`FETCH: Refreshing attendance data from Supabase Cloud DB...`);
     try {
-      const res = await fetch('/api/scan', { method: 'POST' });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.ip) {
-          setDeviceIp(data.ip);
-          if (data.isDiscovered) {
-            addLog(`SUCCESS: Discovered Hikvision machine on IP ${data.ip} (Scanned ${data.scannedCount} addresses)`);
-          } else {
-            addLog(`WARN: No new response from scan. Using default IP: ${data.ip}`);
-          }
-        }
-      } else {
-        addLog(`ERROR: Network scan API returned HTTP ${res.status}`);
-      }
-    } catch (err: any) {
-      addLog(`ERROR: Network scan failed - ${err.message}`);
+      await fetchAttendanceData();
     } finally {
       setIsScanning(false);
     }
@@ -517,136 +623,77 @@ export default function TerminalDashboard() {
 
   const isApiLockedRef = useRef<boolean>(false);
 
+  const probeLocalRelayWithRetries = useCallback(async (): Promise<boolean> => {
+    const ports = [5000, 5001];
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      addLog(`PROBE_RELAY (${attempt}/5): Connecting to Host PC Local Relay [http://localhost:5000]...`);
+      for (const port of ports) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 1000);
+
+          const res = await fetch(`http://localhost:${port}/status`, { signal: controller.signal }).catch(() => null);
+          clearTimeout(timeoutId);
+
+          if (res && res.ok) {
+            const data = await res.json();
+            if (data && data.success && data.isConnected && data.auth?.token === 'TFC-MASTER-RELAY-V2') {
+              setIsHostPc(true);
+              addLog(`✅ RELAY_AUTHENTICATED: Host PC Verified [Token: ${data.auth.token}]! Machine status: ONLINE [${data.ip}]`);
+              if (data.deviceInfo) {
+                setDeviceInfo(data.deviceInfo);
+                if (data.ip) setDeviceIp(data.ip);
+              }
+              return true;
+            }
+          }
+        } catch {}
+      }
+      if (attempt < 5) {
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    }
+    setIsHostPc(false);
+    addLog(`WARN: Local Relay Agent not detected after 5 retries. Connecting to Supabase Cloud DB.`);
+    return false;
+  }, [addLog]);
+
+  const checkHostPcCloudStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/relay-status');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setHostPcCloudOnline(!!data.hostPcOnline);
+          if (data.hostPcOnline) {
+            addLog(`CLOUD_STATUS: Host PC Master Node is ONLINE in Supabase DB!`);
+          } else {
+            addLog(`CLOUD_STATUS: Host PC Master Node is currently OFFLINE in Supabase DB.`);
+          }
+        }
+      }
+    } catch {}
+  }, [addLog]);
+
   useEffect(() => {
     let isMounted = true;
 
-    const executeSequentialStartupPipeline = async () => {
+    const executeStartupPipeline = async () => {
       isApiLockedRef.current = true;
-
-      // Reset states to clean defaults on reload
-      setIsProbeModalOpen(true);
-      setIsCheckingStatus(true);
       setLoading(true);
-      setProbeAttemptCount(1);
 
-      addLog(`INIT: Axom Biometric Monitor Daemon v2.5 initialized.`);
-      addLog(`NETWORK: Probing biometric machine [${deviceIp}] with up to 5 retries...`);
+      addLog(`INIT: Axom Biometric Monitor Dashboard v2.5 initialized.`);
 
-      let machineConnected = false;
-      let detectedDevInfo: DeviceInfoState | null = null;
+      // 1. Perform 5 retries to Local Relay Agent on Host PC first
+      const relayConnected = await probeLocalRelayWithRetries();
+      if (!relayConnected) {
+        await checkHostPcCloudStatus();
+      }
 
+      // 2. Fetch attendance records from Supabase Cloud DB
+      addLog(`DATABASE: Loading attendance data from Supabase Cloud DB...`);
       try {
-        for (let attempt = 1; attempt <= 5; attempt++) {
-          if (!isMounted) break;
-          setProbeAttemptCount(attempt);
-          setProbeTimerSec(10);
-          addLog(`PROBE_CONNECT (${attempt}/5): Connecting to biometric machine [${deviceIp}]...`);
-
-          const countdownInterval = setInterval(() => {
-            setProbeTimerSec((prev) => (prev > 1 ? prev - 1 : 0));
-          }, 1000);
-
-          await new Promise((r) => setTimeout(r, 50));
-
-          const attemptStart = Date.now();
-
-          try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 6000);
-
-            const scanRes = await fetchWithClosedLog('/api/scan', { signal: controller.signal }).catch(() => null);
-            clearTimeout(timeoutId);
-            clearInterval(countdownInterval);
-
-            if (scanRes && scanRes.ok) {
-              const scanData = await scanRes.json();
-              if (scanData && (scanData.isConnected === true || scanData.success === true)) {
-                machineConnected = true;
-                detectedDevInfo = scanData.deviceInfo || {
-                  isConnected: true,
-                  ip: scanData.deviceIp || deviceIp,
-                  model: 'DS-K1T320EFWX',
-                  deviceName: 'Access Controller',
-                  serialNumber: 'DS-K1T320EFWX20240701V030502ENFS1267085',
-                  macAddress: 'a4:d5:c2:1c:4d:83',
-                  firmwareVersion: 'V3.5.2',
-                };
-                addLog(`✅ MACHINE_CONNECTED: Biometric machine [${deviceIp}] connected! Live relay bridge active.`);
-                break;
-              }
-            }
-          } catch {
-            clearInterval(countdownInterval);
-          }
-
-          clearInterval(countdownInterval);
-
-          if (attempt < 5 && isMounted) {
-            const elapsed = Date.now() - attemptStart;
-            const remainingMs = Math.max(400, 1500 - elapsed);
-            await new Promise((r) => setTimeout(r, remainingMs));
-          }
-        }
-
-        if (!isMounted) return;
-
-        if (machineConnected && detectedDevInfo) {
-          setIsDirectMachineMode(true);
-          setDeviceInfo(detectedDevInfo);
-          
-          // Machine Connected -> Unlock UI Modal & Show Dashboard
-          setIsProbeModalOpen(false);
-          setIsCheckingStatus(false);
-          setLoading(false);
-
-          // STEP 2: Machine Connected -> Execute Historical Deep Search Scan
-          addLog(`⚡ RECONNECTED: Machine connection restored! Performing deep search (500+ records scan)...`);
-          try {
-            let loadedCount = 0;
-            const deepRes = await fetchWithClosedLog('/api/sync?deep=true').catch(() => null);
-            if (deepRes && deepRes.ok) {
-              const deepData = await deepRes.json();
-              if (deepData && deepData.success && Array.isArray(deepData.records) && deepData.records.length > 0) {
-                if (!isMounted) return;
-                loadedCount = deepData.records.length;
-                setAllRecords((prev) => {
-                  const map = new Map<string, RecordItem>();
-                  prev.forEach((r) => map.set(r.entry_id, r));
-                  deepData.records.forEach((r: RecordItem) => map.set(r.entry_id, r));
-                  const merged = Array.from(map.values());
-                  setTotal(merged.length);
-                  localStorage.setItem('axom_attendance_cache', JSON.stringify(merged));
-                  return merged;
-                });
-                addLog(`✅ RECONNECT_CATCHUP: Deep search complete! Loaded ${deepData.records.length} records.`);
-              }
-            }
-
-            // Fallback for Vercel Cloud Deployments: If server deep search returned 0 records, load from Supabase Cloud DB
-            if (loadedCount === 0) {
-              addLog(`DATABASE: Loading attendance records from Supabase Cloud DB...`);
-              await fetchAttendanceData();
-            }
-          } catch (deepErr: any) {
-            addLog(`WARN: Deep search notice - ${deepErr.message}`);
-            await fetchAttendanceData();
-          }
-        } else {
-          addLog(`WARN: Machine probe failed after 5 retries. Falling back to Supabase Cloud DB.`);
-          setIsDirectMachineMode(false);
-          setDeviceInfo({
-            isConnected: false,
-            ip: deviceIp,
-            model: 'DS-K1T320EFWX',
-            deviceName: 'Access Controller',
-            serialNumber: '--',
-            macAddress: 'a4:d5:c2:1c:4d:83',
-            firmwareVersion: 'V3.5.2',
-          });
-          setIsProbeModalOpen(false);
-          setIsCheckingStatus(false);
-          await fetchAttendanceData();
-        }
+        await fetchAttendanceData();
       } catch (err: any) {
         addLog(`ERROR: Startup pipeline notice - ${err.message}`);
       } finally {
@@ -654,99 +701,42 @@ export default function TerminalDashboard() {
           setIsProbeModalOpen(false);
           setIsCheckingStatus(false);
           setLoading(false);
-          wasOfflineRef.current = !machineConnected;
           isApiLockedRef.current = false;
         }
       }
     };
 
-    executeSequentialStartupPipeline();
+    executeStartupPipeline();
 
     return () => {
       isMounted = false;
       isApiLockedRef.current = false;
     };
-  }, [addLog, deviceIp, fetchAttendanceData]);
+  }, [addLog, fetchAttendanceData, probeLocalRelayWithRetries, checkHostPcCloudStatus]);
 
 
-  // Phase 4: Realtime Auto-Poll Loop (Strict Mutex Lock: Zero API Collisions)
+  // Phase 4: Realtime Auto-Poll Loop from Supabase Cloud DB
   useEffect(() => {
     let syncInterval: any;
 
-    if (!isCheckingStatus && isAutoPoll && !isProbeModalOpen) {
-      const isOnline = deviceInfo && deviceInfo.isConnected;
+    if (isAutoPoll) {
+      syncInterval = setInterval(async () => {
+        if (isApiLockedRef.current) return;
+        isApiLockedRef.current = true;
 
-      if (isOnline) {
-        if (offlineRetryCountRef.current !== 0 || offlinePausedUntilRef.current !== null) {
-          resetOfflineRetryState();
+        try {
+          await fetchAttendanceData();
+        } catch {}
+        finally {
+          isApiLockedRef.current = false;
         }
-
-        // Fast Realtime Poll (every 2.5s) - Strictly checks isApiLockedRef to prevent ANY API collision!
-        syncInterval = setInterval(async () => {
-          if (isApiLockedRef.current) return;
-          isApiLockedRef.current = true;
-
-          try {
-            const res = await fetchWithClosedLog('/api/sync');
-            if (res.ok) {
-              const data = await res.json();
-              if (data && data.success && data.isConnected) {
-                // Reconnection Catchup Trigger: If machine was offline and is now reconnected -> Deep Search
-                if (wasOfflineRef.current) {
-                  wasOfflineRef.current = false;
-                  addLog(`⚡ RECONNECTED: Machine connection restored! Performing deep search (500+ records scan)...`);
-                  fetchWithClosedLog('/api/sync?deep=true')
-                    .then((r) => r.json())
-                    .then((deepData) => {
-                      if (deepData && deepData.success && Array.isArray(deepData.records) && deepData.records.length > 0) {
-                        setAllRecords((prev) => {
-                          const map = new Map<string, RecordItem>();
-                          prev.forEach((r) => map.set(r.entry_id, r));
-                          deepData.records.forEach((r: RecordItem) => map.set(r.entry_id, r));
-                          const merged = Array.from(map.values());
-                          setTotal(merged.length);
-                          localStorage.setItem('axom_attendance_cache', JSON.stringify(merged));
-                          return merged;
-                        });
-                        addLog(`✅ RECONNECT_CATCHUP: Deep search complete! Loaded ${deepData.records.length} records. Switching to fast 30-latest mode.`);
-                      }
-                    })
-                    .catch(() => null);
-                }
-
-                if (Array.isArray(data.records) && data.records.length > 0) {
-                  setAllRecords((prev) => {
-                    const map = new Map<string, RecordItem>();
-                    prev.forEach((r) => map.set(r.entry_id, r));
-                    data.records.forEach((r: RecordItem) => map.set(r.entry_id, r));
-                    const merged = Array.from(map.values());
-                    setTotal(merged.length);
-                    localStorage.setItem('axom_attendance_cache', JSON.stringify(merged));
-                    return merged;
-                  });
-                }
-                if (data.newRecordsInserted > 0) {
-                  addLog(`⚡ REALTIME: +${data.newRecordsInserted} New Punch(es) synced directly from machine!`);
-                }
-              } else if (data && !data.isConnected) {
-                wasOfflineRef.current = true;
-                addLog(`WARN: Relay agent offline. Preserving local cache.`);
-              }
-            }
-          } catch {}
-          finally {
-            isApiLockedRef.current = false;
-          }
-        }, 2500);
-      } else {
-        wasOfflineRef.current = true;
-      }
+      }, 3500);
     }
 
     return () => {
       if (syncInterval) clearInterval(syncInterval);
     };
-  }, [isCheckingStatus, deviceInfo, isAutoPoll, isProbeModalOpen, addLog, deviceIp, resetOfflineRetryState]);
+  }, [isAutoPoll, fetchAttendanceData]);
 
   const normalizeDateToIso = (dateStr: string): string => {
     if (!dateStr) return '';
@@ -971,7 +961,7 @@ export default function TerminalDashboard() {
             </div>
 
             {/* Right Status Controls */}
-            <div className="flex items-center gap-1.5 sm:gap-3 text-[10px] sm:text-[11px] shrink-0">
+            <div className="flex items-center gap-1.5 sm:gap-2 text-[10px] sm:text-[11px] shrink-0">
               {isCheckingStatus ? (
                 <span className={`inline-flex items-center justify-center p-1 sm:px-2.5 sm:py-0.5 rounded sm:border shadow-none text-[9px] sm:text-[11px] ${
                   isLight ? 'bg-transparent sm:bg-white text-amber-700 sm:border-slate-300' : 'text-amber-400 sm:bg-amber-950/80 sm:border-amber-700/80'
@@ -979,20 +969,48 @@ export default function TerminalDashboard() {
                   <RotateCw className="w-2.5 h-2.5 sm:w-3 sm:h-3 animate-spin shrink-0" />
                   <span className="hidden sm:inline ml-1 font-bold">FETCHING...</span>
                 </span>
-              ) : deviceInfo && deviceInfo.isConnected ? (
-                <span className={`inline-flex items-center gap-1 font-bold p-1 sm:px-2 sm:py-0.5 rounded sm:border shadow-none text-[9px] sm:text-[11px] ${
-                  isLight ? 'bg-transparent sm:bg-white text-emerald-700 sm:border-slate-300' : 'text-emerald-400 sm:bg-emerald-950/80 sm:border-emerald-700/80'
-                }`} title={`ONLINE [${deviceInfo.model || 'DS-K1T320EFWX'}]`}>
-                  <span className="w-2.5 h-2.5 rounded-full animate-sharp-blink bg-emerald-500 shrink-0"></span>
-                  <span className="hidden sm:inline">ONLINE [{deviceInfo.model || 'DS-K1T320EFWX'}]</span>
-                </span>
               ) : (
-                <span className={`inline-flex items-center gap-1 font-bold p-1 sm:px-2 sm:py-0.5 rounded sm:border shadow-none text-[9px] sm:text-[11px] ${
-                  isLight ? 'bg-transparent sm:bg-white text-red-700 sm:border-slate-300' : 'text-red-400 sm:bg-red-950/80 sm:border-red-700/80'
-                }`} title="OFFLINE">
-                  <span className="w-2.5 h-2.5 rounded-full animate-sharp-blink bg-red-500 shrink-0"></span>
-                  <span className="hidden sm:inline">OFFLINE</span>
-                </span>
+                <>
+                  {/* Direct Machine Connection Indicator (Only if directly connected to machine) */}
+                  {deviceInfo && deviceInfo.isConnected && deviceInfo.serialNumber && deviceInfo.serialNumber !== '--' && deviceInfo.serialNumber !== 'RELAY-5000' && deviceInfo.serialNumber !== 'RELAY-ACTIVE' && deviceInfo.serialNumber !== 'RELAY-MASTER-SECURE' && (
+                    <span className={`inline-flex items-center gap-1 font-bold p-1 sm:px-2 sm:py-0.5 rounded sm:border shadow-none text-[9px] sm:text-[11px] ${
+                      isLight ? 'bg-transparent sm:bg-white text-emerald-700 sm:border-slate-300' : 'text-emerald-400 sm:bg-emerald-950/80 sm:border-emerald-700/80'
+                    }`} title={`MACHINE ONLINE [${deviceInfo.model || 'DS-K1T320EFWX'}]`}>
+                      <span className="w-2.5 h-2.5 rounded-full animate-sharp-blink bg-emerald-500 shrink-0" />
+                      <span className="hidden sm:inline">MACHINE ONLINE (#{deviceInfo.serialNumber.length > 10 ? deviceInfo.serialNumber.slice(-8) : deviceInfo.serialNumber})</span>
+                    </span>
+                  )}
+
+                  {/* Host PC Online Indicator (Only if Host PC is Online) */}
+                  {(isHostPc || hostPcCloudOnline) && (
+                    <span className={`inline-flex items-center gap-1 font-bold p-1 sm:px-2 sm:py-0.5 rounded sm:border shadow-none text-[9px] sm:text-[11px] ${
+                      isLight ? 'bg-transparent sm:bg-white text-emerald-700 sm:border-slate-300' : 'text-emerald-400 sm:bg-emerald-950/80 sm:border-emerald-700/80'
+                    }`} title="HOST PC ONLINE">
+                      <span className="w-2.5 h-2.5 rounded-full animate-sharp-blink bg-emerald-500 shrink-0" />
+                      <span className="hidden sm:inline">HOST PC ONLINE</span>
+                    </span>
+                  )}
+
+                  {/* Active Cloud Sync Compact Minimal Indicator */}
+                  {activeCloudCmd && (
+                    <span className={`inline-flex items-center gap-1 font-bold p-1 sm:px-2 sm:py-0.5 rounded sm:border shadow-none text-[9px] sm:text-[11px] ${
+                      activeCloudCmd.status === 'COMPLETED'
+                        ? isLight ? 'bg-transparent sm:bg-white text-emerald-700 sm:border-emerald-400' : 'text-emerald-300 sm:bg-emerald-950/90 sm:border-emerald-600/80'
+                        : activeCloudCmd.status === 'RECEIVED'
+                        ? isLight ? 'bg-transparent sm:bg-white text-sky-700 sm:border-sky-400 animate-pulse' : 'text-sky-300 sm:bg-sky-950/90 sm:border-sky-600/80 animate-pulse'
+                        : activeCloudCmd.status === 'INITIATED'
+                        ? isLight ? 'bg-transparent sm:bg-white text-amber-700 sm:border-amber-400 animate-pulse' : 'text-amber-300 sm:bg-amber-950/90 sm:border-amber-600/80 animate-pulse'
+                        : isLight ? 'bg-transparent sm:bg-white text-cyan-700 sm:border-cyan-400 animate-pulse' : 'text-cyan-300 sm:bg-cyan-950/90 sm:border-cyan-600/80 animate-pulse'
+                    }`} title={`CLOUD SYNC: ${activeCloudCmd.progress}`}>
+                      {activeCloudCmd.status === 'COMPLETED' ? (
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
+                      ) : (
+                        <RotateCw className="w-2.5 h-2.5 animate-spin shrink-0" />
+                      )}
+                      <span className="hidden sm:inline">[{activeCloudCmd.type}]: {activeCloudCmd.progress}</span>
+                    </span>
+                  )}
+                </>
               )}
               
               <span className={`text-slate-400 ${isLight ? 'text-slate-400 font-bold' : ''}`}>|</span>
@@ -1052,13 +1070,6 @@ export default function TerminalDashboard() {
                 <span className="terminal-cursor w-1.5 h-4 sm:w-3 sm:h-7 shrink-0" />
               </div>
 
-              <div className="hidden md:flex items-center gap-2 shrink-0">
-                <span className={`text-xs font-bold px-2.5 py-1 rounded border-2 ${
-                  isLight ? 'bg-emerald-50 text-emerald-900 border-slate-300' : 'bg-emerald-950/80 text-emerald-400 border-emerald-700/80'
-                }`}>
-                  v2.0 LIVE
-                </span>
-              </div>
             </div>
 
             {/* System Diagnostic Specs Strip */}
@@ -1177,57 +1188,94 @@ export default function TerminalDashboard() {
                 </div>
 
                 {/* Command Action Buttons */}
-                <div className="grid grid-cols-3 sm:flex sm:flex-wrap items-center gap-1.5 sm:gap-2">
+                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                   <button
-                    onClick={scanLocalNetwork}
-                    disabled={isScanning}
-                    className={`flex items-center justify-center gap-1 px-2 sm:px-3 py-1.5 rounded border-2 text-[10px] sm:text-xs font-bold transition-all disabled:opacity-50 active:scale-95 whitespace-nowrap ${
+                    onClick={refreshCloudData}
+                    disabled={isScanning || isSyncing || activeCloudCmd !== null}
+                    className={`flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded border-2 text-[10px] sm:text-xs font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none active:scale-95 whitespace-nowrap ${
                       isLight
                         ? 'bg-white border-slate-300 text-sky-800 hover:bg-slate-100'
                         : 'bg-sky-950/80 border-sky-500/50 text-sky-300 hover:bg-sky-900/60'
                     }`}
                   >
-                    <Radar className={`w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0 ${isScanning ? 'animate-spin text-amber-500' : isLight ? 'text-sky-700' : 'text-sky-400'}`} />
-                    <span>{isScanning ? 'Scan...' : './scan'}</span>
+                    <RotateCw className={`w-3.5 h-3.5 shrink-0 ${isScanning ? 'animate-spin text-sky-400' : isLight ? 'text-sky-700' : 'text-sky-400'}`} />
+                    <span>{isScanning ? 'Refreshing...' : './refresh'}</span>
                   </button>
 
+                  {/* 4 Chunked Sync Buttons */}
                   <button
-                    onClick={triggerManualSync}
-                    disabled={isSyncing}
-                    className={`flex items-center justify-center gap-1 px-2 sm:px-3 py-1.5 rounded border-2 text-[10px] sm:text-xs font-bold transition-all disabled:opacity-50 active:scale-95 whitespace-nowrap ${
+                    onClick={() => dispatchCloudCommand('SYNC_DAILY')}
+                    disabled={isSyncing || activeCloudCmd !== null}
+                    title="Fetch last 24-48 hours attendance in paged chunks from machine"
+                    className={`flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded border-2 text-[10px] sm:text-xs font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none active:scale-95 whitespace-nowrap ${
                       isLight
-                        ? 'bg-white border-slate-300 text-emerald-800 hover:bg-slate-100'
+                        ? 'bg-emerald-50 border-emerald-400 text-emerald-800 hover:bg-emerald-100'
                         : 'bg-emerald-950/80 border-emerald-500/50 text-emerald-400 hover:bg-emerald-900/60'
                     }`}
                   >
-                    <RotateCw className={`w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0 ${isSyncing ? 'animate-spin text-emerald-600' : ''}`} />
-                    <span>{isSyncing ? 'Sync...' : './sync'}</span>
+                    <Calendar className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <span>./daily</span>
+                  </button>
+
+                  <button
+                    onClick={() => dispatchCloudCommand('SYNC_WEEKLY')}
+                    disabled={isSyncing || activeCloudCmd !== null}
+                    title="Fetch last 7 days attendance in paged chunks from machine"
+                    className={`flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded border-2 text-[10px] sm:text-xs font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none active:scale-95 whitespace-nowrap ${
+                      isLight
+                        ? 'bg-purple-50 border-purple-400 text-purple-800 hover:bg-purple-100'
+                        : 'bg-purple-950/80 border-purple-500/50 text-purple-300 hover:bg-purple-900/60'
+                    }`}
+                  >
+                    <Calendar className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                    <span>./weekly</span>
+                  </button>
+
+                  <button
+                    onClick={() => dispatchCloudCommand('SYNC_MONTHLY')}
+                    disabled={isSyncing || activeCloudCmd !== null}
+                    title="Fetch last 30 days attendance in paged chunks from machine"
+                    className={`flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded border-2 text-[10px] sm:text-xs font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none active:scale-95 whitespace-nowrap ${
+                      isLight
+                        ? 'bg-amber-50 border-amber-400 text-amber-900 hover:bg-amber-100'
+                        : 'bg-amber-950/80 border-amber-500/50 text-amber-300 hover:bg-amber-900/60'
+                    }`}
+                  >
+                    <Calendar className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <span>./monthly</span>
+                  </button>
+
+                  <button
+                    onClick={() => dispatchCloudCommand('SYNC_CUSTOM')}
+                    disabled={isSyncing || activeCloudCmd !== null}
+                    title="Fetch selected date range in paged chunks from machine"
+                    className={`flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded border-2 text-[10px] sm:text-xs font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none active:scale-95 whitespace-nowrap ${
+                      isLight
+                        ? 'bg-cyan-50 border-cyan-400 text-cyan-900 hover:bg-cyan-100'
+                        : 'bg-cyan-950/80 border-cyan-500/50 text-cyan-300 hover:bg-cyan-900/60'
+                    }`}
+                  >
+                    <SlidersHorizontal className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                    <span>./custom</span>
                   </button>
 
                   <button
                     onClick={handleAutoPollToggle}
-                    className={`flex items-center justify-center px-2 sm:px-3 py-1.5 rounded border-2 text-[10px] sm:text-xs font-bold transition-all whitespace-nowrap ${
-                      offlinePauseState.isPaused
-                        ? isLight
-                          ? 'bg-amber-100 border-amber-400 text-amber-900 animate-pulse'
-                          : 'bg-amber-950 border-amber-600 text-amber-300 animate-pulse'
-                        : isAutoPoll
+                    className={`flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded border-2 text-[10px] sm:text-xs font-bold transition-all whitespace-nowrap ${
+                      isAutoPoll
                         ? isLight
                           ? 'bg-white border-slate-300 text-slate-800 hover:bg-slate-100'
                           : 'bg-slate-900 border-slate-700 text-slate-300'
                         : 'bg-red-950 border-red-800 text-red-400'
                     }`}
-                    title={offlinePauseState.isPaused ? `Auto-scan paused until ${offlinePauseState.pauseUntilStr}. Click to reset and retry.` : ''}
                   >
-                    {offlinePauseState.isPaused
-                      ? `PAUSED (${offlinePauseState.minsLeft}m)`
-                      : isAutoPoll
-                      ? 'POLL: ON'
-                      : 'POLL: OFF'}
+                    <Activity className={`w-3.5 h-3.5 shrink-0 ${isAutoPoll ? 'text-emerald-400 animate-pulse' : 'text-red-400'}`} />
+                    <span>{isAutoPoll ? 'POLL: ON' : 'POLL: OFF'}</span>
                   </button>
                 </div>
               </div>
             </div>
+
 
             {/* View Mode & Date Filter Toggle Header */}
             <div className={`flex flex-col md:flex-row items-stretch md:items-center justify-between px-2 sm:px-4 py-2 border-2 rounded-t border-b-0 text-xs gap-2.5 sm:gap-2 ${

@@ -148,6 +148,58 @@ async function fetchHikvisionEvents() {
   }
 }
 
+const http = require('http');
+let isMachineConnected = false;
+let lastSyncTimeIso = new Date().toISOString();
+
+function startLocalHttpServer(port = 5000) {
+  const server = http.createServer((req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(200);
+      return res.end();
+    }
+
+    const parsedUrl = new URL(req.url, `http://localhost:${port}`);
+    if (parsedUrl.pathname === '/status' || parsedUrl.pathname === '/api/status' || parsedUrl.pathname === '/') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(
+        JSON.stringify({
+          success: true,
+          isConnected: isMachineConnected,
+          ip: HIK_IP,
+          deviceInfo: {
+            isConnected: isMachineConnected,
+            ip: HIK_IP,
+            model: 'DS-K1T320EFWX',
+            deviceName: isMachineConnected ? 'Access Controller (Direct Relay)' : 'Access Controller (Offline)',
+            serialNumber: 'RELAY-5000',
+            macAddress: 'a4:d5:c2:1c:4d:83',
+            firmwareVersion: 'V3.5.2 (Relay Mode)',
+          },
+          processedCount: processedEntryIds.size,
+          lastSyncTime: lastSyncTimeIso,
+        })
+      );
+    }
+
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Not Found' }));
+  });
+
+  server.listen(port, '0.0.0.0', () => {
+    console.log(`📡 Local Relay HTTP Server active on http://localhost:${port}/status (CORS Enabled)`);
+  }).on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`⚠️ Port ${port} in use, trying port ${port + 1}...`);
+      startLocalHttpServer(port + 1);
+    }
+  });
+}
+
 async function initRelay() {
   console.log('====================================================');
   console.log('📡 TFC AXOM - HIKVISION LOCAL RELAY DAEMON AGENT');
@@ -155,6 +207,8 @@ async function initRelay() {
   console.log(`🌐 Hikvision Machine Target IP: https://${HIK_IP}`);
   console.log(`☁️ Supabase Cloud DB Destination: ${SUPABASE_URL}`);
   console.log(`⏱️ Polling Frequency: Every ${POLL_INTERVAL_MS}ms\n`);
+
+  startLocalHttpServer(5000);
 
   // Pre-fill processed entries from Supabase or reset if DB was truncated
   try {
@@ -183,6 +237,7 @@ async function initRelay() {
 
     try {
       const data = await fetchHikvisionEvents();
+      isMachineConnected = true;
       const newRecords = [];
 
       if (data?.AcsEvent?.InfoList && Array.isArray(data.AcsEvent.InfoList)) {

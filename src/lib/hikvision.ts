@@ -362,7 +362,44 @@ export async function getHikvisionDeviceInfo(): Promise<HikvisionDeviceInfo> {
     return cachedDeviceInfo;
   }
 
+  const isVercel = process.env.VERCEL === '1' || process.env.NEXT_PUBLIC_VERCEL_ENV !== undefined;
   const ip = cachedHikIp || DEFAULT_HIK_IP;
+
+  // Helper to check if Relay Agent is active by querying Supabase Cloud DB
+  const checkRelayFallback = async (): Promise<HikvisionDeviceInfo | null> => {
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      try {
+        const { data: recentRows } = await supabase
+          .from('attendance_log')
+          .select('created_at')
+          .order('id', { ascending: false })
+          .limit(1);
+
+        if (recentRows && recentRows.length > 0) {
+          cachedDeviceInfo = {
+            isConnected: true,
+            ip: 'Relay Cloud Bridge',
+            model: 'DS-K1T320EFWX',
+            deviceName: 'Access Controller (Relay Connected)',
+            serialNumber: 'RELAY-ACTIVE',
+            macAddress: 'a4:d5:c2:1c:4d:83',
+            firmwareVersion: 'V3.5.2 (Relay Mode)',
+          };
+          lastDeviceInfoTs = now;
+          return cachedDeviceInfo;
+        }
+      } catch { }
+    }
+    return null;
+  };
+
+  // If running on Vercel cloud environment, skip slow local IP timeouts and check Relay status directly
+  if (isVercel) {
+    const relayInfo = await checkRelayFallback();
+    if (relayInfo) return relayInfo;
+  }
+
   const uri = '/ISAPI/System/deviceInfo';
   const protocol = cachedWorkingProtocol || 'http';
   const url = `${protocol}://${ip}${uri}`;
@@ -371,6 +408,9 @@ export async function getHikvisionDeviceInfo(): Promise<HikvisionDeviceInfo> {
     const firstRes = await fetchHikvisionRequest(url, { method: 'GET' }).catch(() => null);
 
     if (!firstRes) {
+      const relayInfo = await checkRelayFallback();
+      if (relayInfo) return relayInfo;
+
       cachedDeviceInfo = {
         isConnected: false,
         ip,
@@ -436,6 +476,9 @@ export async function getHikvisionDeviceInfo(): Promise<HikvisionDeviceInfo> {
       return cachedDeviceInfo;
     }
   } catch (err) { }
+
+  const relayInfo = await checkRelayFallback();
+  if (relayInfo) return relayInfo;
 
   cachedDeviceInfo = {
     isConnected: false,

@@ -38,10 +38,14 @@ export async function GET(request: Request) {
     });
     const todayStrFull = formatterFull.format(now); // e.g. "21/08/2026"
 
-    const YYYY = now.getFullYear();
-    const MM = String(now.getMonth() + 1).padStart(2, '0');
-    const DD = String(now.getDate()).padStart(2, '0');
-    const todayStrIso = `${YYYY}-${MM}-${DD}`; // e.g. "2026-08-21"
+    const partsFull = formatterFull.formatToParts(now);
+    let dVal = '', mVal = '', yVal = '';
+    for (const p of partsFull) {
+      if (p.type === 'day') dVal = p.value;
+      if (p.type === 'month') mVal = p.value;
+      if (p.type === 'year') yVal = p.value;
+    }
+    const todayStrIso = `${yVal}-${mVal}-${dVal}`; // e.g. "2026-08-24" (IST Date)
 
     const startDateParam = searchParams.get('startDate');
     const endDateParam = searchParams.get('endDate');
