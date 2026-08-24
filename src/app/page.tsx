@@ -699,7 +699,12 @@ export default function TerminalDashboard() {
     } catch {}
   }, [addLog]);
 
+  const hasMountedRef = useRef<boolean>(false);
+
   useEffect(() => {
+    if (hasMountedRef.current) return;
+    hasMountedRef.current = true;
+
     let isMounted = true;
 
     const executeStartupPipeline = async () => {
@@ -737,6 +742,16 @@ export default function TerminalDashboard() {
       isApiLockedRef.current = false;
     };
   }, [addLog, fetchAttendanceData, probeLocalRelayWithRetries, checkHostPcCloudStatus]);
+
+  // Dedicated effect for user date selection changes (prevents startup re-renders)
+  const isInitialDateRef = useRef<boolean>(true);
+  useEffect(() => {
+    if (isInitialDateRef.current) {
+      isInitialDateRef.current = false;
+      return;
+    }
+    fetchAttendanceData(false);
+  }, [startDate, endDate, fetchAttendanceData]);
 
 
   // Phase 4: Realtime Auto-Poll Loop from Supabase Cloud DB (Ghost Update Mode)
@@ -1609,7 +1624,7 @@ export default function TerminalDashboard() {
                     <tbody className={`divide-y border-t ${
                       isLight ? 'border-slate-300 divide-slate-200' : 'border-slate-700/80 divide-slate-800'
                     }`}>
-                      {loading ? (
+                      {loading && groupedList.length === 0 ? (
                         <tr>
                           <td colSpan={8} className={`py-8 text-center border ${isLight ? 'border-slate-200 text-slate-600 font-bold' : 'border-slate-800 text-slate-500'}`}>
                             <div className="flex items-center justify-center gap-2">
@@ -1762,7 +1777,7 @@ export default function TerminalDashboard() {
                     <tbody className={`divide-y border-t ${
                       isLight ? 'border-slate-300 divide-slate-200' : 'border-slate-700/80 divide-slate-800'
                     }`}>
-                      {loading ? (
+                      {loading && filteredRecords.length === 0 ? (
                         <tr>
                           <td colSpan={8} className={`py-8 text-center border ${isLight ? 'border-slate-200 text-slate-600 font-bold' : 'border-slate-800 text-slate-500'}`}>
                             <div className="flex items-center justify-center gap-2">
