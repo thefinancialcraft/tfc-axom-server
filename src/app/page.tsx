@@ -34,7 +34,8 @@ import {
   Settings,
   SlidersHorizontal,
   Radio,
-  Loader2
+  Loader2,
+  Download
 } from 'lucide-react';
 
 interface RecordItem {
@@ -341,16 +342,25 @@ export default function TerminalDashboard() {
 
 
 
-  const fetchAttendanceData = useCallback(async () => {
+  const fetchAttendanceData = useCallback(async (isGhost: boolean = false) => {
     try {
       const url = endDate && endDate !== startDate
         ? `/api/attendance?startDate=${startDate}&endDate=${endDate}`
         : `/api/attendance?date=${startDate}`;
       
       const label = formatCustomDateLabel(startDate, endDate);
-      addLog(`FETCH: Requesting ${url} from Supabase Cloud...`);
-      const res = await fetchWithClosedLog(url);
-      if (res.ok) {
+      if (!isGhost) {
+        addLog(`FETCH: Requesting ${url} from Supabase Cloud...`);
+      }
+
+      let res: Response | null = null;
+      if (isGhost) {
+        res = await fetch(url).catch(() => null);
+      } else {
+        res = await fetchWithClosedLog(url);
+      }
+
+      if (res && res.ok) {
         const data = await res.json();
         if (data.success) {
           const fetchedAll = data.records || [];
@@ -370,7 +380,7 @@ export default function TerminalDashboard() {
             setDeviceInfo(data.deviceInfo);
             if (data.deviceInfo.ip) setDeviceIp(data.deviceInfo.ip);
 
-            if (data.deviceInfo.isConnected) {
+            if (data.deviceInfo.isConnected && !isGhost) {
               addLog(`DEVICE_STATUS: Connected [IP: ${data.deviceInfo.ip}, Model: ${data.deviceInfo.model || 'DS-K1T320EFWX'}]`);
             }
           }
@@ -380,20 +390,26 @@ export default function TerminalDashboard() {
           setTotal(newTotal);
           setTodayDate(data.todayDate || new Date().toLocaleDateString('en-GB'));
           
-          addLog(`SYNC_OK: Fetched ${newTotal} record(s) for [${label}].`);
-        } else {
+          if (!isGhost) {
+            addLog(`SYNC_OK: Fetched ${newTotal} record(s) for [${label}].`);
+          }
+        } else if (!isGhost) {
           addLog(`WARN: API returned success=false - ${data.error || 'Unknown error'}`);
         }
-      } else {
+      } else if (!isGhost && res) {
         addLog(`ERROR: HTTP ${res.status} returned from /api/attendance`);
       }
     } catch (err: any) {
-      addLog(`ERROR: Failed to fetch attendance data - ${err.message}`);
+      if (!isGhost) {
+        addLog(`ERROR: Failed to fetch attendance data - ${err.message}`);
+      }
     } finally {
-      setLoading(false);
-      setIsCheckingStatus(false);
+      if (!isGhost) {
+        setLoading(false);
+        setIsCheckingStatus(false);
+      }
     }
-  }, [addLog, deviceIp, startDate, endDate]);
+  }, [addLog, deviceIp, startDate, endDate, fetchWithClosedLog]);
 
   const [activeCloudCmd, setActiveCloudCmd] = useState<{ id: string; type: string; status: string; progress: string } | null>(null);
 
@@ -625,36 +641,30 @@ export default function TerminalDashboard() {
 
   const probeLocalRelayWithRetries = useCallback(async (): Promise<boolean> => {
     const ports = [5000, 5001];
-    for (let attempt = 1; attempt <= 5; attempt++) {
-      addLog(`PROBE_RELAY (${attempt}/5): Connecting to Host PC Local Relay [http://localhost:5000]...`);
-      for (const port of ports) {
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 1000);
+    addLog(`PROBE_RELAY: Connecting to Host PC Local Relay [http://localhost:5000]...`);
+    for (const port of ports) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 600);
 
-          const res = await fetch(`http://localhost:${port}/status`, { signal: controller.signal }).catch(() => null);
-          clearTimeout(timeoutId);
+        const res = await fetch(`http://localhost:${port}/status`, { signal: controller.signal }).catch(() => null);
+        clearTimeout(timeoutId);
 
-          if (res && res.ok) {
-            const data = await res.json();
-            if (data && data.success && data.isConnected && data.auth?.token === 'TFC-MASTER-RELAY-V2') {
-              setIsHostPc(true);
-              addLog(`✅ RELAY_AUTHENTICATED: Host PC Verified [Token: ${data.auth.token}]! Machine status: ONLINE [${data.ip}]`);
-              if (data.deviceInfo) {
-                setDeviceInfo(data.deviceInfo);
-                if (data.ip) setDeviceIp(data.ip);
-              }
-              return true;
+        if (res && res.ok) {
+          const data = await res.json();
+          if (data && data.success && data.isConnected && data.auth?.token === 'TFC-MASTER-RELAY-V2') {
+            setIsHostPc(true);
+            addLog(`✅ RELAY_AUTHENTICATED: Host PC Verified [Token: ${data.auth.token}]! Machine status: ONLINE [${data.ip}]`);
+            if (data.deviceInfo) {
+              setDeviceInfo(data.deviceInfo);
+              if (data.ip) setDeviceIp(data.ip);
             }
+            return true;
           }
-        } catch {}
-      }
-      if (attempt < 5) {
-        await new Promise((r) => setTimeout(r, 500));
-      }
+        }
+      } catch {}
     }
     setIsHostPc(false);
-    addLog(`WARN: Local Relay Agent not detected after 5 retries. Connecting to Supabase Cloud DB.`);
     return false;
   }, [addLog]);
 
@@ -665,8 +675,20 @@ export default function TerminalDashboard() {
         const data = await res.json();
         if (data.success) {
           setHostPcCloudOnline(!!data.hostPcOnline);
-          if (data.hostPcOnline) {
+          if (data.hostPcOnline && data.hostNode) {
             addLog(`CLOUD_STATUS: Host PC Master Node is ONLINE in Supabase DB!`);
+            if (data.hostNode.machine_connected) {
+              setDeviceInfo({
+                model: 'DS-K1T320EFWX',
+                serialNumber: data.hostNode.serial_number || 'S1267085',
+                macAddress: '--',
+                firmwareVersion: '--',
+                isConnected: true,
+              });
+              if (data.hostNode.machine_ip) {
+                setDeviceIp(data.hostNode.machine_ip);
+              }
+            }
           } else {
             addLog(`CLOUD_STATUS: Host PC Master Node is currently OFFLINE in Supabase DB.`);
           }
@@ -684,7 +706,7 @@ export default function TerminalDashboard() {
 
       addLog(`INIT: Axom Biometric Monitor Dashboard v2.5 initialized.`);
 
-      // 1. Perform 5 retries to Local Relay Agent on Host PC first
+      // 1. Perform light probe to Local Relay Agent on Host PC
       const relayConnected = await probeLocalRelayWithRetries();
       if (!relayConnected) {
         await checkHostPcCloudStatus();
@@ -693,7 +715,7 @@ export default function TerminalDashboard() {
       // 2. Fetch attendance records from Supabase Cloud DB
       addLog(`DATABASE: Loading attendance data from Supabase Cloud DB...`);
       try {
-        await fetchAttendanceData();
+        await fetchAttendanceData(false);
       } catch (err: any) {
         addLog(`ERROR: Startup pipeline notice - ${err.message}`);
       } finally {
@@ -715,7 +737,7 @@ export default function TerminalDashboard() {
   }, [addLog, fetchAttendanceData, probeLocalRelayWithRetries, checkHostPcCloudStatus]);
 
 
-  // Phase 4: Realtime Auto-Poll Loop from Supabase Cloud DB
+  // Phase 4: Realtime Auto-Poll Loop from Supabase Cloud DB (Ghost Update Mode)
   useEffect(() => {
     let syncInterval: any;
 
@@ -725,12 +747,12 @@ export default function TerminalDashboard() {
         isApiLockedRef.current = true;
 
         try {
-          await fetchAttendanceData();
+          await fetchAttendanceData(true); // Silent Ghost Update
         } catch {}
         finally {
           isApiLockedRef.current = false;
         }
-      }, 3500);
+      }, 4000);
     }
 
     return () => {
@@ -1043,6 +1065,16 @@ export default function TerminalDashboard() {
                   </span>
                 </div>
               </div>
+
+              {/* Download Relay Package Quick Link */}
+              <a
+                href="/api/download-relay"
+                download="tfc-relay-agent.zip"
+                title="Download Standalone Host PC Relay Agent (.zip)"
+                className="p-0.5 cursor-pointer transition-transform hover:scale-110 duration-200 active:scale-95 flex items-center justify-center shrink-0"
+              >
+                <Download className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${isLight ? 'text-emerald-700 hover:text-emerald-800' : 'text-emerald-400 hover:text-emerald-300'}`} />
+              </a>
 
               <span className={`text-slate-400 ${isLight ? 'text-slate-400 font-bold' : ''}`}>|</span>
 

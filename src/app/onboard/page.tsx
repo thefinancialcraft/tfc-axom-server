@@ -16,6 +16,7 @@ import {
   CheckCircle,
   XCircle,
   SlidersHorizontal,
+  Download,
 } from 'lucide-react';
 
 interface EmployeeItem {
@@ -209,6 +210,34 @@ export default function OnboardPage() {
                 <RotateCw className={`w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0 ${loading ? 'animate-spin text-emerald-500' : ''}`} />
                 <span>REFRESH LIST</span>
               </button>
+            </div>
+
+            {/* Standalone Relay Agent Download Card */}
+            <div className={`p-3 sm:p-4 border-2 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+              isLight ? 'bg-emerald-50/90 border-emerald-300 text-slate-900 shadow-sm' : 'bg-emerald-950/40 border-emerald-600/60 text-emerald-300 shadow-md shadow-emerald-950/40'
+            }`}>
+              <div className="space-y-1 min-w-0">
+                <div className={`flex items-center gap-2 text-xs sm:text-sm font-bold ${isLight ? 'text-emerald-800' : 'text-emerald-400'}`}>
+                  <Download className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>DOWNLOAD STANDALONE HOST PC RELAY AGENT (.ZIP)</span>
+                </div>
+                <p className={`text-[10px] sm:text-xs ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                  Zero-dependency background relay package for Host PC (`tfc-relay-agent`). Runs `standalone-relay.js` silently via `start-relay-silent.vbs`.
+                </p>
+              </div>
+
+              <a
+                href="/api/download-relay"
+                download="tfc-relay-agent.zip"
+                className={`inline-flex items-center justify-center gap-2 px-3.5 sm:px-4 py-2 rounded-md border-2 text-xs font-black transition-all active:scale-95 whitespace-nowrap shrink-0 ${
+                  isLight
+                    ? 'bg-emerald-600 border-emerald-700 text-white hover:bg-emerald-700 shadow-md'
+                    : 'bg-emerald-500 border-emerald-400 text-slate-950 hover:bg-emerald-400 shadow-lg shadow-emerald-950/80'
+                }`}
+              >
+                <Download className="w-4 h-4 shrink-0" />
+                <span>DOWNLOAD RELAY PACKAGE</span>
+              </a>
             </div>
 
             {/* Quick Stats Grid (3 columns on mobile, clean fit) */}

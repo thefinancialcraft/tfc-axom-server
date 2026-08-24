@@ -266,8 +266,9 @@ function startLocalHttpServer(port = 5000) {
       return res.end();
     }
 
-    // Security Patch 2: Anti-Flood Rate Limiter (Max 60 requests/min per IP)
+    // Security Patch 2: Anti-Flood Rate Limiter (Bypass for Localhost, Max 300 req/min for external IPs)
     const clientIp = req.socket.remoteAddress || '127.0.0.1';
+    const isLocalhost = clientIp === '127.0.0.1' || clientIp === '::1' || clientIp === '::ffff:127.0.0.1' || clientIp.includes('127.0.0.1');
     const nowTs = Date.now();
     const clientData = rateLimitMap.get(clientIp) || { count: 0, resetTs: nowTs + 60000 };
 
@@ -278,7 +279,7 @@ function startLocalHttpServer(port = 5000) {
     clientData.count++;
     rateLimitMap.set(clientIp, clientData);
 
-    if (clientData.count > 60) {
+    if (!isLocalhost && clientData.count > 300) {
       res.writeHead(429, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ error: 'Too Many Requests (Rate Limit Exceeded)' }));
     }
@@ -595,6 +596,7 @@ async function sendHeartbeatToSupabase() {
       status: isMachineConnected ? 'ONLINE' : 'MACHINE_OFFLINE',
       machine_ip: HIK_IP,
       machine_connected: isMachineConnected,
+      serial_number: hikDeviceInfo?.serialNumber || 'DS-K1T320EFWX20240701V030502ENFS1267085',
       auth_token: 'TFC-MASTER-RELAY-V2',
       processed_count: processedEntryIds.size,
       last_heartbeat: new Date().toISOString(),
