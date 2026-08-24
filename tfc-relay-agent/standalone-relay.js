@@ -577,10 +577,14 @@ async function checkAndExecuteCloudCommands() {
 
 let lastHeartbeatTs = 0;
 
-async function sendHeartbeatToSupabase() {
+let prevMachineConnectedState = null;
+
+async function sendHeartbeatToSupabase(force = false) {
   const now = Date.now();
-  if (now - lastHeartbeatTs < 12000) return;
+  const stateChanged = prevMachineConnectedState !== isMachineConnected;
+  if (!force && !stateChanged && (now - lastHeartbeatTs < 12000)) return;
   lastHeartbeatTs = now;
+  prevMachineConnectedState = isMachineConnected;
 
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
   const endpoint = `${SUPABASE_URL}/rest/v1/relay_status`;
@@ -624,12 +628,13 @@ async function initRelay() {
     isSyncing = true;
 
     try {
-      await sendHeartbeatToSupabase();
-      await checkAndExecuteCloudCommands();
-
+      // 1. Fetch events from Hikvision Machine first & update connection state
       const data = await fetchHikvisionEvents();
       isMachineConnected = true;
+
+      // 2. Send updated heartbeat to Supabase Cloud DB
       await sendHeartbeatToSupabase();
+      await checkAndExecuteCloudCommands();
       const newRecords = [];
 
       if (data?.AcsEvent?.InfoList && Array.isArray(data.AcsEvent.InfoList)) {
