@@ -679,10 +679,12 @@ export default function TerminalDashboard() {
             addLog(`CLOUD_STATUS: Host PC Master Node is ONLINE in Supabase DB!`);
             if (data.hostNode.machine_connected) {
               setDeviceInfo({
+                ip: data.hostNode.machine_ip || '192.168.1.63',
                 model: 'DS-K1T320EFWX',
+                deviceName: 'Hikvision Face Terminal',
                 serialNumber: data.hostNode.serial_number || 'S1267085',
                 macAddress: '--',
-                firmwareVersion: '--',
+                firmwareVersion: 'V3.5.2',
                 isConnected: true,
               });
               if (data.hostNode.machine_ip) {
