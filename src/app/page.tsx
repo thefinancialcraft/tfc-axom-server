@@ -37,7 +37,8 @@ import {
   Loader2,
   Download,
   XCircle,
-  UserX
+  UserX,
+  RotateCcw
 } from 'lucide-react';
 
 interface RecordItem {
@@ -78,12 +79,18 @@ export default function TerminalDashboard() {
   const [selectedUserFilter, setSelectedUserFilter] = useState<string>('ALL');
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState<boolean>(false);
   const [userDropdownSearch, setUserDropdownSearch] = useState<string>('');
+  const [isDateLoading, setIsDateLoading] = useState<boolean>(false);
+  const [isPageDropdownOpen, setIsPageDropdownOpen] = useState<boolean>(false);
   const userDropdownRef = useRef<HTMLDivElement>(null);
+  const pageDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (userDropdownRef.current && !userDropdownRef.current.contains(e.target as Node)) {
         setIsUserDropdownOpen(false);
+      }
+      if (pageDropdownRef.current && !pageDropdownRef.current.contains(e.target as Node)) {
+        setIsPageDropdownOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -111,10 +118,26 @@ export default function TerminalDashboard() {
     const newY = dateObj.getFullYear();
     const newM = String(dateObj.getMonth() + 1).padStart(2, '0');
     const newD = String(dateObj.getDate()).padStart(2, '0');
-    setLoading(true);
-    setStartDate(`${newY}-${newM}-${newD}`);
+    const targetStart = `${newY}-${newM}-${newD}`;
+    setStartDate(targetStart);
     setEndDate(null);
     setIsPickingRangeEnd(false);
+    fetchAttendanceData(false, targetStart, null);
+  };
+
+  const handleResetRange = () => {
+    const d = new Date();
+    const YYYY = d.getFullYear();
+    const MM = String(d.getMonth() + 1).padStart(2, '0');
+    const DD = String(d.getDate()).padStart(2, '0');
+    const todayIso = `${YYYY}-${MM}-${DD}`;
+
+    setStartDate(todayIso);
+    setEndDate(null);
+    setIsPickingRangeEnd(false);
+    setCalendarYear(YYYY);
+    setCalendarMonth(d.getMonth());
+    fetchAttendanceData(false, todayIso, null);
   };
 
   const formatSingleDateLabel = (isoStr: string) => {
@@ -141,36 +164,50 @@ export default function TerminalDashboard() {
       setEndDate(null);
       setIsPickingRangeEnd(true);
     } else {
-      setLoading(true);
+      let finalStart = startDate;
+      let finalEnd: string | null = isoDateStr;
       if (isoDateStr < startDate) {
-        setEndDate(startDate);
-        setStartDate(isoDateStr);
-      } else {
-        setEndDate(isoDateStr);
+        finalEnd = startDate;
+        finalStart = isoDateStr;
       }
+      setStartDate(finalStart);
+      setEndDate(finalEnd);
       setIsPickingRangeEnd(false);
       setIsCalendarOpen(false);
+      fetchAttendanceData(false, finalStart, finalEnd);
     }
   };
 
-  const setPresetDate = (preset: 'TODAY' | 'YESTERDAY' | 'LAST7DAYS') => {
+  const setPresetDate = (preset: 'TODAY' | 'YESTERDAY' | 'LAST3DAYS' | 'LAST7DAYS') => {
     const d = new Date();
     const YYYY = d.getFullYear();
     const MM = String(d.getMonth() + 1).padStart(2, '0');
     const DD = String(d.getDate()).padStart(2, '0');
     const todayIso = `${YYYY}-${MM}-${DD}`;
 
-    setLoading(true);
     setIsPickingRangeEnd(false);
+
+    let targetStart = todayIso;
+    let targetEnd: string | null = null;
 
     if (preset === 'YESTERDAY') {
       d.setDate(d.getDate() - 1);
       const yY = d.getFullYear();
       const yM = String(d.getMonth() + 1).padStart(2, '0');
       const yD = String(d.getDate()).padStart(2, '0');
-      setStartDate(`${yY}-${yM}-${yD}`);
-      setEndDate(null);
+      targetStart = `${yY}-${yM}-${yD}`;
+      targetEnd = null;
       setCalendarYear(yY);
+      setCalendarMonth(d.getMonth());
+    } else if (preset === 'LAST3DAYS') {
+      const d3 = new Date();
+      d3.setDate(d3.getDate() - 2);
+      const sY = d3.getFullYear();
+      const sM = String(d3.getMonth() + 1).padStart(2, '0');
+      const sD = String(d3.getDate()).padStart(2, '0');
+      targetStart = `${sY}-${sM}-${sD}`;
+      targetEnd = todayIso;
+      setCalendarYear(YYYY);
       setCalendarMonth(d.getMonth());
     } else if (preset === 'LAST7DAYS') {
       const d7 = new Date();
@@ -178,17 +215,21 @@ export default function TerminalDashboard() {
       const sY = d7.getFullYear();
       const sM = String(d7.getMonth() + 1).padStart(2, '0');
       const sD = String(d7.getDate()).padStart(2, '0');
-      setStartDate(`${sY}-${sM}-${sD}`);
-      setEndDate(todayIso);
+      targetStart = `${sY}-${sM}-${sD}`;
+      targetEnd = todayIso;
       setCalendarYear(YYYY);
       setCalendarMonth(d.getMonth());
     } else {
-      setStartDate(todayIso);
-      setEndDate(null);
+      targetStart = todayIso;
+      targetEnd = null;
       setCalendarYear(YYYY);
       setCalendarMonth(d.getMonth());
     }
+
+    setStartDate(targetStart);
+    setEndDate(targetEnd);
     setIsCalendarOpen(false);
+    fetchAttendanceData(false, targetStart, targetEnd);
   };
   
   const [total, setTotal] = useState<number>(0);
@@ -365,13 +406,19 @@ export default function TerminalDashboard() {
 
 
 
-  const fetchAttendanceData = useCallback(async (isGhost: boolean = false) => {
+  const fetchAttendanceData = useCallback(async (isGhost: boolean = false, overrideStart?: string, overrideEnd?: string | null) => {
+    const targetStart = overrideStart ?? startDate;
+    const targetEnd = overrideEnd !== undefined ? overrideEnd : endDate;
     try {
-      const url = endDate && endDate !== startDate
-        ? `/api/attendance?startDate=${startDate}&endDate=${endDate}`
-        : `/api/attendance?date=${startDate}`;
+      if (!isGhost) {
+        setIsDateLoading(true);
+      }
+
+      const url = targetEnd && targetEnd !== targetStart
+        ? `/api/attendance?startDate=${targetStart}&endDate=${targetEnd}`
+        : `/api/attendance?date=${targetStart}`;
       
-      const label = formatCustomDateLabel(startDate, endDate);
+      const label = formatCustomDateLabel(targetStart, targetEnd);
       if (!isGhost) {
         addLog(`FETCH: Requesting ${url} from Supabase Cloud...`);
       }
@@ -430,6 +477,7 @@ export default function TerminalDashboard() {
       if (!isGhost) {
         setLoading(false);
         setIsCheckingStatus(false);
+        setIsDateLoading(false);
       }
     }
   }, [addLog, deviceIp, startDate, endDate, fetchWithClosedLog]);
@@ -766,15 +814,19 @@ export default function TerminalDashboard() {
     };
   }, [addLog, fetchAttendanceData, probeLocalRelayWithRetries, checkHostPcCloudStatus]);
 
-  // Dedicated effect for user date selection changes (prevents startup re-renders)
+  // Dedicated effect for user date selection changes (prevents startup re-renders & partial range queries)
   const isInitialDateRef = useRef<boolean>(true);
   useEffect(() => {
     if (isInitialDateRef.current) {
       isInitialDateRef.current = false;
       return;
     }
+    // DO NOT run query if user clicked 1st date and is currently picking 2nd date!
+    if (isPickingRangeEnd) {
+      return;
+    }
     fetchAttendanceData(false);
-  }, [startDate, endDate, fetchAttendanceData]);
+  }, [startDate, endDate, isPickingRangeEnd, fetchAttendanceData]);
 
 
   // Phase 4: Realtime Auto-Poll Loop from Supabase Cloud DB (Ghost Update Mode)
@@ -918,10 +970,125 @@ export default function TerminalDashboard() {
     return item.serial_no || 0;
   };
 
+  const formatIsoToDisplayDate = (isoStr: string): string => {
+    if (!isoStr || isoStr === '--') return '--';
+    if (isoStr.includes('/')) return isoStr;
+    const parts = isoStr.split('-').map(Number);
+    if (parts.length !== 3) return isoStr;
+    const [y, m, d] = parts;
+    return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`;
+  };
+
+  const isSundayDate = (dateStr: string): boolean => {
+    if (!dateStr || dateStr === '--') return false;
+    const isoStr = normalizeDateToIso(dateStr);
+    const parts = isoStr.split('-').map(Number);
+    if (parts.length !== 3) return false;
+    const [y, m, d] = parts;
+    const dateObj = new Date(y, m - 1, d);
+    return dateObj.getDay() === 0;
+  };
+
+  const isMultiDayRange = Boolean(endDate && endDate !== startDate);
+
   // Group records by Employee ID & Date -> Pre-fill entries for ALL ACTIVE EMPLOYEES!
   const getGroupedAttendance = (): GroupedAttendance[] => {
     const grouped: GroupedAttendance[] = [];
     const matchedPunchEntryIds = new Set<string>();
+
+    if (isMultiDayRange && startDate && endDate) {
+      // 1. Generate full list of ISO dates between startDate and endDate
+      const dateList: string[] = [];
+      const minDateStr = startDate < endDate ? startDate : endDate;
+      const maxDateStr = startDate > endDate ? startDate : endDate;
+
+      const [sY, sM, sD] = minDateStr.split('-').map(Number);
+      const [eY, eM, eD] = maxDateStr.split('-').map(Number);
+
+      if (sY && sM && sD && eY && eM && eD) {
+        const curDate = new Date(sY, sM - 1, sD);
+        const lastDate = new Date(eY, eM - 1, eD);
+
+        while (curDate <= lastDate) {
+          const yyyy = curDate.getFullYear();
+          const mm = String(curDate.getMonth() + 1).padStart(2, '0');
+          const dd = String(curDate.getDate()).padStart(2, '0');
+          dateList.push(`${yyyy}-${mm}-${dd}`);
+          curDate.setDate(curDate.getDate() + 1);
+        }
+      }
+
+      // 2. Gather target employees & punch IDs (matching active list, selectedUserFilter, search, and punches)
+      const targetEmpList = activeEmployeesList.filter((emp) => {
+        const matchesSearch =
+          search === '' ||
+          emp.employeeName.toLowerCase().includes(search.toLowerCase()) ||
+          emp.employeeId.toLowerCase().includes(search.toLowerCase());
+        const matchesUserFilter =
+          selectedUserFilter === 'ALL' || matchesEmpId(emp.employeeId, selectedUserFilter);
+        return matchesSearch && matchesUserFilter;
+      });
+
+      const targetEmpIds = new Set(targetEmpList.map((e) => e.employeeId));
+      filteredRecords.forEach((r) => {
+        if (r.employee_id && !inactiveEmpIds.has(r.employee_id)) {
+          const alreadyIn = Array.from(targetEmpIds).some((id) => matchesEmpId(id, r.employee_id));
+          if (!alreadyIn) {
+            targetEmpIds.add(r.employee_id);
+          }
+        }
+      });
+
+      // 3. For each employee ID, iterate over EVERY date in dateList!
+      targetEmpIds.forEach((empId) => {
+        const empPunches = filteredRecords.filter((r) => matchesEmpId(r.employee_id, empId));
+        const empName =
+          targetEmpList.find((e) => matchesEmpId(e.employeeId, empId))?.employeeName ||
+          empPunches.find((r) => r.user_name)?.user_name ||
+          allRecords.find((r) => matchesEmpId(r.employee_id, empId))?.user_name ||
+          empId;
+
+        dateList.forEach((recDate) => {
+          const list = empPunches.filter((r) => normalizeDateToIso(r.attendance_date) === recDate);
+          const displayDateStr = formatIsoToDisplayDate(recDate);
+
+          if (list.length > 0) {
+            const sorted = [...list].sort((a, b) => getPunchSecondsOfDay(a) - getPunchSecondsOfDay(b));
+            const first = sorted[0];
+            const last = sorted[sorted.length - 1];
+
+            grouped.push({
+              employee_id: empId,
+              user_name: first.user_name || empName,
+              attendance_date: displayDateStr,
+              check_in_time: first.attendance_time,
+              check_out_time: sorted.length > 1 ? last.attendance_time : '--',
+              total_punches: sorted.length,
+              latest_punch_seconds: getPunchSecondsOfDay(last),
+              has_punched: true,
+            });
+          } else {
+            // Employee HAS NO PUNCHES on this date -> Insert pre-filled unpunched row!
+            grouped.push({
+              employee_id: empId,
+              user_name: empName,
+              attendance_date: displayDateStr,
+              check_in_time: '--',
+              check_out_time: '--',
+              total_punches: 0,
+              latest_punch_seconds: -1,
+              has_punched: false,
+            });
+          }
+        });
+      });
+
+      return grouped.sort((a, b) => {
+        const empCmp = a.employee_id.localeCompare(b.employee_id, undefined, { numeric: true });
+        if (empCmp !== 0) return empCmp;
+        return a.attendance_date.localeCompare(b.attendance_date);
+      });
+    }
 
     if (selectedUserFilter === 'INACTIVE_USERS') {
       inactiveEmployeesList.forEach((emp) => {
@@ -1056,6 +1223,38 @@ export default function TerminalDashboard() {
   };
 
   const groupedList = getGroupedAttendance();
+
+  // Unique Employee IDs in current records for ID-by-ID Paginator
+  const uniqueEmployeeIds = useMemo(() => {
+    const ids = Array.from(new Set(groupedList.map((g) => g.employee_id)));
+    return ids.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [groupedList]);
+
+  const [currentPage, setCurrentPage] = useState<number>(1);
+
+  // Auto-reset page to 1 when filters or date range change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [startDate, endDate, search, selectedUserFilter]);
+
+  const totalPages = uniqueEmployeeIds.length > 0 ? uniqueEmployeeIds.length : 1;
+  const safePage = Math.min(Math.max(1, currentPage), totalPages);
+  const activeEmployeeId = uniqueEmployeeIds[safePage - 1] || '';
+
+  // Paginated list when multi-day date range is active (1 Employee ID per Page)
+  const displayGroupedList = useMemo(() => {
+    if (isMultiDayRange && activeEmployeeId) {
+      return groupedList.filter((item) => matchesEmpId(item.employee_id, activeEmployeeId));
+    }
+    return groupedList;
+  }, [groupedList, isMultiDayRange, activeEmployeeId]);
+
+  const displayRawRecords = useMemo(() => {
+    if (isMultiDayRange && activeEmployeeId) {
+      return filteredRecords.filter((item) => matchesEmpId(item.employee_id, activeEmployeeId));
+    }
+    return filteredRecords;
+  }, [filteredRecords, isMultiDayRange, activeEmployeeId]);
 
   const totalActiveUsers = activeEmployeesList.length > 0 ? activeEmployeesList.length : 56;
   const presentUsersCount = groupedList.filter((item) => item.has_punched).length;
@@ -1296,10 +1495,8 @@ export default function TerminalDashboard() {
               </div>
             </div>
 
-            {/* CLI Command Bar & Controls */}
-            <div className={`border-2 p-2 sm:p-3 rounded space-y-2 sm:space-y-3 shadow-none ${
-              isLight ? 'bg-[#f8fafc] border-slate-300 text-slate-900' : 'bg-[#0c121e] border-slate-700/90'
-            }`}>
+            {/* CLI Command Bar & Controls (Inline without outer container box) */}
+            <div className="space-y-2 sm:space-y-3 py-1">
               <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2 sm:gap-3">
                 
                 {/* Search Bar Input */}
@@ -1420,9 +1617,9 @@ export default function TerminalDashboard() {
             </div>
 
 
-            {/* View Mode & Date Filter Toggle Header */}
-            <div className={`flex flex-col md:flex-row items-stretch md:items-center justify-between px-2 sm:px-4 py-2 border-2 rounded-t border-b-0 text-xs gap-2.5 sm:gap-2 ${
-              isLight ? 'bg-slate-200/80 border-slate-300 text-slate-900 font-bold' : 'bg-[#0b101c] border-slate-700/90 text-slate-300'
+            {/* View Mode & Date Filter Toggle Header (Inline without outer container box) */}
+            <div className={`flex flex-col md:flex-row items-stretch md:items-center justify-between px-0 py-1 text-xs gap-2.5 sm:gap-2 ${
+              isLight ? 'text-slate-900 font-bold' : 'text-slate-300'
             }`}>
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 w-full md:w-auto">
                 
@@ -1642,43 +1839,55 @@ export default function TerminalDashboard() {
 
                 <span className="text-slate-400 hidden sm:inline">|</span>
 
-                {/* Date Navigator Bar: PREV | DATE PICKER | NEXT */}
+                {/* Date Navigator Bar: PREV / RESET | DATE PICKER | NEXT / RESET */}
                 <div className="flex items-center justify-between gap-1.5 w-full sm:w-auto">
-                  {/* Standalone Previous Day Button */}
-                  <button
-                    onClick={() => handleShiftDay(-1)}
-                    title="Previous Day"
-                    className={`flex items-center justify-center gap-0.5 sm:gap-1 px-2 sm:px-2.5 py-1.5 sm:py-1 rounded border-2 font-bold text-[10px] sm:text-xs transition-all active:scale-95 shrink-0 ${
-                      isLight
-                        ? 'bg-white border-slate-300 text-slate-900 hover:bg-slate-100'
-                        : 'bg-slate-900 border-slate-700 text-sky-400 hover:bg-sky-950/60 hover:border-sky-500/50'
-                    }`}
-                  >
-                    <ChevronLeft className="w-3.5 h-3.5 text-sky-500 shrink-0" />
-                    <span>PREV</span>
-                  </button>
+                  {/* Standalone Previous Day Button (Hidden in Multi-Day Range mode) */}
+                  {!isMultiDayRange && (
+                    <button
+                      onClick={() => handleShiftDay(-1)}
+                      disabled={isDateLoading || loading}
+                      title="Previous Day"
+                      className={`flex items-center justify-center gap-0.5 sm:gap-1 px-2 sm:px-2.5 py-1.5 sm:py-1 rounded border-2 font-bold text-[10px] sm:text-xs transition-all active:scale-95 shrink-0 ${
+                        isDateLoading || loading ? 'opacity-40 cursor-not-allowed pointer-events-none' : ''
+                      } ${
+                        isLight
+                          ? 'bg-white border-slate-300 text-slate-900 hover:bg-slate-100'
+                          : 'bg-slate-900 border-slate-700 text-sky-400 hover:bg-sky-950/60 hover:border-sky-500/50'
+                      }`}
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+                      <span>PREV</span>
+                    </button>
+                  )}
 
                   {/* Main Date Display Badge Popover Anchor */}
                   <div className="relative flex-1 sm:flex-initial">
                     <button
                       onClick={() => setIsCalendarOpen(!isCalendarOpen)}
+                      disabled={isDateLoading || loading}
                       className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 sm:py-1 rounded border-2 transition-all font-mono font-bold text-[10px] sm:text-xs active:scale-95 w-full sm:w-auto truncate ${
+                        isDateLoading || loading ? 'opacity-70 cursor-not-allowed pointer-events-none' : ''
+                      } ${
                         isLight
                           ? 'bg-emerald-50 text-emerald-900 hover:bg-emerald-100 border-slate-300'
-                          : 'bg-emerald-950/80 text-emerald-400 hover:bg-emerald-900/60 border-emerald-500/50 shadow-md shadow-emerald-950/40'
+                          : 'bg-emerald-950/80 text-emerald-400 hover:bg-emerald-900/60 border-emerald-500/50 shadow-none'
                       }`}
                     >
-                      <Calendar className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-500 shrink-0" />
+                      {isDateLoading ? (
+                        <RotateCw className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-400 animate-spin shrink-0" />
+                      ) : (
+                        <Calendar className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-500 shrink-0" />
+                      )}
                       <span className="truncate">{formatCustomDateLabel(startDate, endDate)}</span>
                       <ChevronDown className={`w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0 transition-transform duration-200 ${isCalendarOpen ? 'rotate-180' : ''}`} />
                     </button>
 
                     {/* Custom Calendar Dropdown Modal */}
                     {isCalendarOpen && (
-                      <div className={`absolute left-0 sm:left-auto right-0 sm:right-auto mt-2 z-50 p-2.5 sm:p-3 rounded-lg border-2 shadow-2xl w-[calc(100vw-2rem)] sm:w-80 max-w-sm transition-all font-mono ${
+                      <div className={`absolute left-0 sm:left-auto right-0 sm:right-auto mt-2 z-50 p-2.5 sm:p-3 rounded-lg border-2 shadow-none w-[calc(100vw-2rem)] sm:w-80 max-w-sm transition-all font-mono ${
                         isLight
                           ? 'bg-white border-slate-300 text-slate-900 shadow-none'
-                          : 'bg-[#090f1f] border-sky-500/60 text-sky-200 shadow-sky-950/80'
+                          : 'bg-[#090f1f] border-slate-700 text-sky-200 shadow-none'
                       }`}>
                         {/* Banner Guide for Range Picking */}
                         {isPickingRangeEnd && (
@@ -1725,14 +1934,11 @@ export default function TerminalDashboard() {
                         {/* Presets: TODAY / YESTERDAY / 3 DAYS / 7 DAYS */}
                         <div className="flex gap-1 mb-2.5">
                           <button
-                            onClick={() => {
-                              const now = new Date();
-                              const iso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-                              setStartDate(iso);
-                              setEndDate(iso);
-                              setIsCalendarOpen(false);
-                            }}
+                            onClick={() => setPresetDate('TODAY')}
+                            disabled={isDateLoading || loading}
                             className={`flex-1 py-1 rounded text-[10px] font-bold border transition-colors ${
+                              isDateLoading || loading ? 'opacity-40 cursor-not-allowed pointer-events-none' : ''
+                            } ${
                               isLight
                                 ? 'bg-emerald-50 text-emerald-700 border-emerald-400 hover:bg-emerald-100'
                                 : 'bg-emerald-950/80 text-emerald-400 border-emerald-700/80 hover:bg-emerald-900'
@@ -1741,15 +1947,11 @@ export default function TerminalDashboard() {
                             [TODAY]
                           </button>
                           <button
-                            onClick={() => {
-                              const now = new Date();
-                              const yest = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-                              const iso = `${yest.getFullYear()}-${String(yest.getMonth() + 1).padStart(2, '0')}-${String(yest.getDate()).padStart(2, '0')}`;
-                              setStartDate(iso);
-                              setEndDate(iso);
-                              setIsCalendarOpen(false);
-                            }}
+                            onClick={() => setPresetDate('YESTERDAY')}
+                            disabled={isDateLoading || loading}
                             className={`flex-1 py-1 rounded text-[10px] font-bold border transition-colors ${
+                              isDateLoading || loading ? 'opacity-40 cursor-not-allowed pointer-events-none' : ''
+                            } ${
                               isLight
                                 ? 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
                                 : 'bg-slate-900 text-slate-400 border-slate-700 hover:bg-slate-800'
@@ -1758,16 +1960,11 @@ export default function TerminalDashboard() {
                             [YEST]
                           </button>
                           <button
-                            onClick={() => {
-                              const now = new Date();
-                              const endIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-                              const threeAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
-                              const startIso = `${threeAgo.getFullYear()}-${String(threeAgo.getMonth() + 1).padStart(2, '0')}-${String(threeAgo.getDate()).padStart(2, '0')}`;
-                              setStartDate(startIso);
-                              setEndDate(endIso);
-                              setIsCalendarOpen(false);
-                            }}
+                            onClick={() => setPresetDate('LAST3DAYS')}
+                            disabled={isDateLoading || loading}
                             className={`flex-1 py-1 rounded text-[10px] font-bold border transition-colors ${
+                              isDateLoading || loading ? 'opacity-40 cursor-not-allowed pointer-events-none' : ''
+                            } ${
                               isLight
                                 ? 'bg-amber-50 text-amber-800 border-amber-400 hover:bg-amber-100'
                                 : 'bg-amber-950/80 text-amber-300 border-amber-700/80 hover:bg-amber-900'
@@ -1776,16 +1973,11 @@ export default function TerminalDashboard() {
                             [3 DAYS]
                           </button>
                           <button
-                            onClick={() => {
-                              const now = new Date();
-                              const endIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-                              const sevenAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-                              const startIso = `${sevenAgo.getFullYear()}-${String(sevenAgo.getMonth() + 1).padStart(2, '0')}-${String(sevenAgo.getDate()).padStart(2, '0')}`;
-                              setStartDate(startIso);
-                              setEndDate(endIso);
-                              setIsCalendarOpen(false);
-                            }}
+                            onClick={() => setPresetDate('LAST7DAYS')}
+                            disabled={isDateLoading || loading}
                             className={`flex-1 py-1 rounded text-[10px] font-bold border transition-colors ${
+                              isDateLoading || loading ? 'opacity-40 cursor-not-allowed pointer-events-none' : ''
+                            } ${
                               isLight
                                 ? 'bg-sky-50 text-sky-700 border-sky-400 hover:bg-sky-100'
                                 : 'bg-sky-950/80 text-sky-300 border-sky-700/80 hover:bg-sky-900'
@@ -1821,7 +2013,10 @@ export default function TerminalDashboard() {
                               <button
                                 key={`day-${dayNum}`}
                                 onClick={() => handleDateCellClick(thisIso)}
+                                disabled={isDateLoading || loading}
                                 className={`py-1 rounded font-bold transition-all text-xs ${
+                                  isDateLoading || loading ? 'opacity-40 cursor-not-allowed pointer-events-none' : ''
+                                } ${
                                   isStart || isEnd
                                     ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/40 border border-emerald-400 scale-105'
                                     : inRange
@@ -1840,19 +2035,40 @@ export default function TerminalDashboard() {
                     )}
                   </div>
 
-                  {/* Standalone Next Day Button */}
-                  <button
-                    onClick={() => handleShiftDay(1)}
-                    title="Next Day"
-                    className={`flex items-center justify-center gap-0.5 sm:gap-1 px-2 sm:px-2.5 py-1.5 sm:py-1 rounded border-2 font-bold text-[10px] sm:text-xs transition-all active:scale-95 shrink-0 ${
-                      isLight
-                        ? 'bg-white border-slate-300 text-slate-900 hover:bg-slate-100'
-                        : 'bg-slate-900 border-slate-700 text-sky-400 hover:bg-sky-950/60 hover:border-sky-500/50'
-                    }`}
-                  >
-                    <span>NEXT</span>
-                    <ChevronRight className="w-3.5 h-3.5 text-sky-500 shrink-0" />
-                  </button>
+                  {/* Standalone Next Day Button OR Reset Button */}
+                  {!isMultiDayRange ? (
+                    <button
+                      onClick={() => handleShiftDay(1)}
+                      disabled={isDateLoading || loading}
+                      title="Next Day"
+                      className={`flex items-center justify-center gap-0.5 sm:gap-1 px-2 sm:px-2.5 py-1.5 sm:py-1 rounded border-2 font-bold text-[10px] sm:text-xs transition-all active:scale-95 shrink-0 ${
+                        isDateLoading || loading ? 'opacity-40 cursor-not-allowed pointer-events-none' : ''
+                      } ${
+                        isLight
+                          ? 'bg-white border-slate-300 text-slate-900 hover:bg-slate-100'
+                          : 'bg-slate-900 border-slate-700 text-sky-400 hover:bg-sky-950/60 hover:border-sky-500/50'
+                      }`}
+                    >
+                      <span>NEXT</span>
+                      <ChevronRight className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleResetRange}
+                      disabled={isDateLoading || loading}
+                      title="Reset Date Range"
+                      className={`flex items-center justify-center gap-1 px-2.5 sm:px-3 py-1.5 sm:py-1 rounded border-2 font-bold text-[10px] sm:text-xs transition-all active:scale-95 shrink-0 ${
+                        isDateLoading || loading ? 'opacity-40 cursor-not-allowed pointer-events-none' : ''
+                      } ${
+                        isLight
+                          ? 'bg-red-50 border-red-300 text-red-700 hover:bg-red-100'
+                          : 'bg-red-950/80 border-red-600/80 text-red-300 hover:bg-red-900/80 shadow-md shadow-red-950/40'
+                      }`}
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                      <span>RESET</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1863,8 +2079,118 @@ export default function TerminalDashboard() {
               </div>
             </div>
 
-            {/* Terminal Table Display */}
-            <div className={`border-2 rounded-b overflow-hidden ${
+            {/* ID by ID Paginator Bar (Inline without outer container box) */}
+            {isMultiDayRange && uniqueEmployeeIds.length > 0 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-2 py-1 font-mono text-xs w-full">
+                {/* Left: Active User & Page Info */}
+                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                  <span className="font-bold text-amber-400 text-[11px] sm:text-xs px-2.5 py-1 rounded border border-amber-500/50 bg-amber-950/60">
+                    PAGE {safePage} OF {totalPages}
+                  </span>
+                  <span className="text-slate-500 hidden sm:inline">|</span>
+                  <span className="font-bold text-emerald-400 text-xs">
+                    EMPLOYEE ID: #{activeEmployeeId} ({displayGroupedList[0]?.user_name || activeEmployeeId})
+                  </span>
+                  <span className="text-slate-400 text-[11px]">
+                    ({displayGroupedList.length} Day Entry/Entries)
+                  </span>
+                </div>
+
+                {/* Right: Dropdown & Navigation Buttons */}
+                <div className="flex items-center gap-1.5 flex-wrap justify-center w-full sm:w-auto">
+                  <button
+                    onClick={() => setCurrentPage(1)}
+                    disabled={safePage <= 1}
+                    className="px-2.5 py-1 rounded border font-bold text-[10px] transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-amber-950/60 border-amber-500/40 text-amber-300"
+                  >
+                    ⏮ FIRST
+                  </button>
+                  <button
+                    onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                    disabled={safePage <= 1}
+                    className="px-2.5 py-1 rounded border font-bold text-[10px] transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-amber-950/60 border-amber-500/40 text-amber-300"
+                  >
+                    ◀ PREV USER
+                  </button>
+
+                  {/* Custom Page Select Dropdown (Displays strictly User ID) */}
+                  <div className="relative" ref={pageDropdownRef}>
+                    <button
+                      type="button"
+                      onClick={() => setIsPageDropdownOpen(!isPageDropdownOpen)}
+                      className={`flex items-center justify-between gap-1.5 px-2.5 py-1 rounded border font-bold text-xs transition-all active:scale-95 min-w-[70px] ${
+                        isLight
+                          ? 'bg-white border-amber-400 text-amber-900 hover:bg-amber-50'
+                          : 'bg-[#050914] border-amber-500/80 text-amber-300 hover:bg-amber-950/80 shadow-md shadow-amber-950/40'
+                      }`}
+                    >
+                      <span className="font-extrabold text-amber-400">#{activeEmployeeId}</span>
+                      <ChevronDown className={`w-3 h-3 text-amber-400 shrink-0 transition-transform duration-200 ${isPageDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {/* Custom Popover Options Modal */}
+                    {isPageDropdownOpen && (
+                      <div className={`absolute left-1/2 -translate-x-1/2 mt-1 top-full z-50 p-1.5 rounded-lg border-2 shadow-2xl w-40 font-mono text-xs ${
+                        isLight
+                          ? 'bg-white border-amber-300 text-slate-900 shadow-xl'
+                          : 'bg-[#090f1f] border-amber-500/60 text-sky-200 shadow-amber-950/90'
+                      }`}>
+                        <div className="text-[10px] font-bold text-slate-400 px-2 py-1 mb-1 border-b border-slate-700/80 text-center">
+                          SELECT USER ID
+                        </div>
+                        <div className="max-h-48 overflow-y-auto space-y-0.5 scrollbar-thin">
+                          {uniqueEmployeeIds.map((id, index) => {
+                            const pageNum = index + 1;
+                            const isSelected = pageNum === safePage;
+                            const uName = groupedList.find((g) => matchesEmpId(g.employee_id, id))?.user_name || id;
+                            return (
+                              <button
+                                key={id}
+                                type="button"
+                                onClick={() => {
+                                  setCurrentPage(pageNum);
+                                  setIsPageDropdownOpen(false);
+                                }}
+                                className={`w-full text-left px-2 py-1 rounded flex items-center justify-between text-[11px] transition-colors ${
+                                  isSelected
+                                    ? 'bg-amber-400 text-black font-extrabold shadow-sm'
+                                    : isLight
+                                    ? 'hover:bg-amber-100 text-slate-800'
+                                    : 'hover:bg-amber-950/60 text-amber-200'
+                                }`}
+                              >
+                                <span className="font-bold text-amber-400 group-hover:text-amber-300">#{id}</span>
+                                <span className="text-[10px] opacity-75 truncate max-w-[70px] text-right">{uName}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                    disabled={safePage >= totalPages}
+                    className="px-2.5 py-1 rounded border font-bold text-[10px] transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-amber-950/60 border-amber-500/40 text-amber-300"
+                  >
+                    NEXT USER ▶
+                  </button>
+                  <button
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={safePage >= totalPages}
+                    className="px-2.5 py-1 rounded border font-bold text-[10px] transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-amber-950/60 border-amber-500/40 text-amber-300"
+                  >
+                    LAST ⏭
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Terminal Table Display (Smooth Fade on Date Filter Fetch) */}
+            <div className={`border-2 rounded overflow-hidden transition-opacity duration-300 ${
+              isDateLoading || loading ? 'opacity-40 pointer-events-none' : 'opacity-100'
+            } ${
               isLight ? 'bg-white border-slate-300 text-slate-900 shadow-none' : 'bg-[#070b14] border-slate-700/90'
             }`}>
               
@@ -1897,7 +2223,7 @@ export default function TerminalDashboard() {
                     <tbody className={`divide-y border-t ${
                       isLight ? 'border-slate-300 divide-slate-200' : 'border-slate-700/80 divide-slate-800'
                     }`}>
-                      {loading && groupedList.length === 0 ? (
+                      {loading && displayGroupedList.length === 0 ? (
                         <tr>
                           <td colSpan={8} className={`py-8 text-center border ${isLight ? 'border-slate-200 text-slate-600 font-bold' : 'border-slate-800 text-slate-500'}`}>
                             <div className="flex items-center justify-center gap-2">
@@ -1906,14 +2232,14 @@ export default function TerminalDashboard() {
                             </div>
                           </td>
                         </tr>
-                      ) : groupedList.length === 0 ? (
+                      ) : displayGroupedList.length === 0 ? (
                         <tr>
                           <td colSpan={8} className={`py-8 text-center border ${isLight ? 'border-slate-200 text-slate-600 font-bold' : 'border-slate-800 text-slate-500'}`}>
                             [NO ATTENDANCE RECORDS FOUND FOR {formatCustomDateLabel(startDate, endDate)}]
                           </td>
                         </tr>
                       ) : (
-                        groupedList.map((item, idx) => (
+                        displayGroupedList.map((item, idx) => (
                           <tr
                             key={`${item.employee_id}_${item.attendance_date}`}
                             className={`border-b transition-colors group ${
@@ -1942,7 +2268,17 @@ export default function TerminalDashboard() {
                             <td className={`py-2.5 px-3 border-r font-medium ${
                               isLight ? 'border-slate-200 text-slate-700' : 'border-slate-800/80 text-slate-300'
                             }`}>
-                              {item.attendance_date}
+                              <div className="flex items-center gap-1.5">
+                                <span>{item.attendance_date}</span>
+                                {isSundayDate(item.attendance_date) && (
+                                  <span
+                                    title="Sunday / Off Day"
+                                    className="px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-red-950 text-red-400 border border-red-800/90 shadow-sm shadow-red-950/80 shrink-0 select-none"
+                                  >
+                                    S
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             <td className={`py-2.5 px-3 border-r ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}>
                               {item.has_punched ? (
@@ -2050,7 +2386,7 @@ export default function TerminalDashboard() {
                     <tbody className={`divide-y border-t ${
                       isLight ? 'border-slate-300 divide-slate-200' : 'border-slate-700/80 divide-slate-800'
                     }`}>
-                      {loading && filteredRecords.length === 0 ? (
+                      {loading && displayRawRecords.length === 0 ? (
                         <tr>
                           <td colSpan={8} className={`py-8 text-center border ${isLight ? 'border-slate-200 text-slate-600 font-bold' : 'border-slate-800 text-slate-500'}`}>
                             <div className="flex items-center justify-center gap-2">
@@ -2059,14 +2395,14 @@ export default function TerminalDashboard() {
                             </div>
                           </td>
                         </tr>
-                      ) : filteredRecords.length === 0 ? (
+                      ) : displayRawRecords.length === 0 ? (
                         <tr>
                           <td colSpan={8} className={`py-8 text-center border ${isLight ? 'border-slate-200 text-slate-600 font-bold' : 'border-slate-800 text-slate-500'}`}>
                             [NO RAW PUNCH RECORDS FOUND FOR {formatCustomDateLabel(startDate, endDate)}]
                           </td>
                         </tr>
                       ) : (
-                        filteredRecords.map((item, idx) => (
+                        displayRawRecords.map((item, idx) => (
                           <tr
                             key={item.entry_id}
                             className={`border-b transition-colors group ${
