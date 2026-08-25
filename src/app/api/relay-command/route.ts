@@ -101,8 +101,29 @@ export async function POST(request: Request) {
       startHikDate = formatHikIso(past30D, false);
       endHikDate = formatHikIso(now, true);
     } else if (cmdUpper === 'SYNC_CUSTOM') {
-      const sDate = startDate ? new Date(startDate) : now;
-      const eDate = endDate ? new Date(endDate) : sDate;
+      const parseDateSafely = (dStr?: string) => {
+        if (!dStr) return new Date();
+        const clean = dStr.trim();
+        if (clean.includes('/')) {
+          const parts = clean.split('/');
+          if (parts.length === 3) {
+            let [d, m, y] = parts;
+            if (y.length === 2) y = `20${y}`;
+            return new Date(Number(y), Number(m) - 1, Number(d));
+          }
+        }
+        if (clean.includes('-')) {
+          const parts = clean.split('T')[0].split('-');
+          if (parts.length === 3) {
+            const [y, m, d] = parts;
+            return new Date(Number(y), Number(m) - 1, Number(d));
+          }
+        }
+        return new Date(clean);
+      };
+
+      const sDate = parseDateSafely(startDate);
+      const eDate = parseDateSafely(endDate || startDate);
       startHikDate = formatHikIso(sDate, false);
       endHikDate = formatHikIso(eDate, true);
     } else {

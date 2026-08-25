@@ -108,6 +108,70 @@ export default function TerminalDashboard() {
   const [isCalendarOpen, setIsCalendarOpen] = useState<boolean>(false);
   const [calendarMonth, setCalendarMonth] = useState<number>(() => new Date().getMonth());
   const [calendarYear, setCalendarYear] = useState<number>(() => new Date().getFullYear());
+  const [isCustomCalendarOpen, setIsCustomCalendarOpen] = useState<boolean>(false);
+  const [customStartDate, setCustomStartDate] = useState<string>(startDate);
+  const [customEndDate, setCustomEndDate] = useState<string | null>(endDate);
+  const [isCustomPickingRangeEnd, setIsCustomPickingRangeEnd] = useState<boolean>(false);
+  const [customCalendarMonth, setCustomCalendarMonth] = useState<number>(() => new Date().getMonth());
+  const [customCalendarYear, setCustomCalendarYear] = useState<number>(() => new Date().getFullYear());
+
+  const handleCustomDateCellClick = (isoDateStr: string) => {
+    if (!isCustomPickingRangeEnd || !customStartDate) {
+      setCustomStartDate(isoDateStr);
+      setCustomEndDate(null);
+      setIsCustomPickingRangeEnd(true);
+    } else {
+      let finalStart = customStartDate;
+      let finalEnd: string | null = isoDateStr;
+      if (isoDateStr < customStartDate) {
+        finalEnd = customStartDate;
+        finalStart = isoDateStr;
+      }
+      setCustomStartDate(finalStart);
+      setCustomEndDate(finalEnd);
+      setIsCustomPickingRangeEnd(false);
+    }
+  };
+
+  const setCustomPresetDate = (preset: 'TODAY' | 'YESTERDAY' | 'LAST3DAYS' | 'LAST7DAYS') => {
+    const d = new Date();
+    const YYYY = d.getFullYear();
+    const MM = String(d.getMonth() + 1).padStart(2, '0');
+    const DD = String(d.getDate()).padStart(2, '0');
+    const todayIso = `${YYYY}-${MM}-${DD}`;
+
+    setIsCustomPickingRangeEnd(false);
+
+    let targetStart = todayIso;
+    let targetEnd: string | null = null;
+
+    if (preset === 'YESTERDAY') {
+      d.setDate(d.getDate() - 1);
+      const yY = d.getFullYear();
+      const yM = String(d.getMonth() + 1).padStart(2, '0');
+      const yD = String(d.getDate()).padStart(2, '0');
+      targetStart = `${yY}-${yM}-${yD}`;
+      targetEnd = null;
+    } else if (preset === 'LAST3DAYS') {
+      d.setDate(d.getDate() - 2);
+      const sY = d.getFullYear();
+      const sM = String(d.getMonth() + 1).padStart(2, '0');
+      const sD = String(d.getDate()).padStart(2, '0');
+      targetStart = `${sY}-${sM}-${sD}`;
+      targetEnd = todayIso;
+    } else if (preset === 'LAST7DAYS') {
+      d.setDate(d.getDate() - 6);
+      const sY = d.getFullYear();
+      const sM = String(d.getMonth() + 1).padStart(2, '0');
+      const sD = String(d.getDate()).padStart(2, '0');
+      targetStart = `${sY}-${sM}-${sD}`;
+      targetEnd = todayIso;
+    }
+
+    setCustomStartDate(targetStart);
+    setCustomEndDate(targetEnd);
+  };
+
 
   const handleShiftDay = (deltaDays: number) => {
     const parts = startDate.split('-').map(Number);
@@ -484,10 +548,16 @@ export default function TerminalDashboard() {
 
   const [activeCloudCmd, setActiveCloudCmd] = useState<{ id: string; type: string; status: string; progress: string } | null>(null);
 
-  const dispatchCloudCommand = async (commandType: 'SYNC_DAILY' | 'SYNC_WEEKLY' | 'SYNC_MONTHLY' | 'SYNC_CUSTOM') => {
+  const dispatchCloudCommand = async (
+    commandType: 'SYNC_DAILY' | 'SYNC_WEEKLY' | 'SYNC_MONTHLY' | 'SYNC_CUSTOM',
+    overrideStart?: string,
+    overrideEnd?: string
+  ) => {
     try {
       setIsSyncing(true);
-      const label = commandType === 'SYNC_DAILY' ? 'Daily (24h)' : commandType === 'SYNC_WEEKLY' ? 'Weekly (7 Days)' : commandType === 'SYNC_MONTHLY' ? 'Monthly (30 Days)' : 'Custom Range';
+      const startToUse = overrideStart || startDate;
+      const endToUse = overrideEnd || endDate || startToUse;
+      const label = commandType === 'SYNC_DAILY' ? 'Daily (24h)' : commandType === 'SYNC_WEEKLY' ? 'Weekly (7 Days)' : commandType === 'SYNC_MONTHLY' ? 'Monthly (30 Days)' : `Custom (${startToUse} ➔ ${endToUse})`;
       
       // State 1: Request Initialize
       setActiveCloudCmd({
@@ -503,8 +573,8 @@ export default function TerminalDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           command: commandType,
-          startDate: startDate,
-          endDate: endDate || startDate,
+          startDate: startToUse,
+          endDate: endToUse,
         }),
       });
 
@@ -1585,19 +1655,160 @@ export default function TerminalDashboard() {
                     <span>./monthly</span>
                   </button>
 
-                  <button
-                    onClick={() => dispatchCloudCommand('SYNC_CUSTOM')}
-                    disabled={isSyncing || activeCloudCmd !== null}
-                    title="Fetch selected date range in paged chunks from machine"
-                    className={`flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded border-2 text-[10px] sm:text-xs font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none active:scale-95 whitespace-nowrap ${
-                      isLight
-                        ? 'bg-cyan-50 border-cyan-400 text-cyan-900 hover:bg-cyan-100'
-                        : 'bg-cyan-950/80 border-cyan-500/50 text-cyan-300 hover:bg-cyan-900/60'
-                    }`}
-                  >
-                    <SlidersHorizontal className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                    <span>./custom</span>
-                  </button>
+                  {/* Dedicated ./custom Action Button & DatePicker Calendar Popover */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setIsCustomCalendarOpen(!isCustomCalendarOpen)}
+                      disabled={isSyncing || activeCloudCmd !== null}
+                      title="Open custom query calendar to select range and fetch attendance chunks from machine"
+                      className={`flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded border-2 text-[10px] sm:text-xs font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none active:scale-95 whitespace-nowrap ${
+                        isLight
+                          ? 'bg-cyan-50 border-cyan-400 text-cyan-900 hover:bg-cyan-100'
+                          : 'bg-cyan-950/80 border-cyan-500/50 text-cyan-300 hover:bg-cyan-900/60'
+                      }`}
+                    >
+                      <SlidersHorizontal className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                      <span>./custom</span>
+                      <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${isCustomCalendarOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {/* Dedicated Custom Sync Calendar Dropdown Modal */}
+                    {isCustomCalendarOpen && (
+                      <div className={`absolute right-0 mt-2 z-50 p-2.5 sm:p-3 rounded-lg border-2 shadow-none w-[calc(100vw-2rem)] sm:w-80 max-w-sm transition-all font-mono ${
+                        isLight
+                          ? 'bg-white border-slate-300 text-slate-900 shadow-none'
+                          : 'bg-[#080d1a] border-slate-700 text-sky-200 shadow-none'
+                      }`}>
+                        {/* Banner Guide for Range Picking */}
+                        <div className="mb-2 p-1.5 rounded text-[10px] font-bold text-center bg-cyan-950/90 text-cyan-300 border border-cyan-500/50">
+                          {isCustomPickingRangeEnd
+                            ? '👉 CLICK 2ND DATE TO COMPLETE RANGE'
+                            : `RANGE: ${formatCustomDateLabel(customStartDate, customEndDate)}`}
+                        </div>
+
+                        {/* Dropdown Header: Month & Year Selector */}
+                        <div className="flex items-center justify-between pb-2 mb-2 border-b font-bold border-slate-700">
+                          <button
+                            onClick={() => {
+                              if (customCalendarMonth === 0) {
+                                setCustomCalendarMonth(11);
+                                setCustomCalendarYear(customCalendarYear - 1);
+                              } else {
+                                setCustomCalendarMonth(customCalendarMonth - 1);
+                              }
+                            }}
+                            className={`p-1 rounded hover:bg-slate-800 ${isLight ? 'hover:bg-slate-200' : ''}`}
+                          >
+                            <ChevronLeft className="w-4 h-4" />
+                          </button>
+
+                          <span className="text-xs tracking-wider font-bold text-cyan-400">
+                            {['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'][customCalendarMonth]} {customCalendarYear}
+                          </span>
+
+                          <button
+                            onClick={() => {
+                              if (customCalendarMonth === 11) {
+                                setCustomCalendarMonth(0);
+                                setCustomCalendarYear(customCalendarYear + 1);
+                              } else {
+                                setCustomCalendarMonth(customCalendarMonth + 1);
+                              }
+                            }}
+                            className={`p-1 rounded hover:bg-slate-800 ${isLight ? 'hover:bg-slate-200' : ''}`}
+                          >
+                            <ChevronRight className="w-4 h-4" />
+                          </button>
+                        </div>
+
+                        {/* Presets: TODAY / YESTERDAY / 3 DAYS / 7 DAYS */}
+                        <div className="flex gap-1 mb-2.5">
+                          <button
+                            onClick={() => setCustomPresetDate('TODAY')}
+                            className="flex-1 py-1 rounded text-[10px] font-bold border bg-cyan-950/80 text-cyan-300 border-cyan-700/80 hover:bg-cyan-900"
+                          >
+                            [TODAY]
+                          </button>
+                          <button
+                            onClick={() => setCustomPresetDate('YESTERDAY')}
+                            className="flex-1 py-1 rounded text-[10px] font-bold border bg-slate-900 text-slate-400 border-slate-700 hover:bg-slate-800"
+                          >
+                            [YEST]
+                          </button>
+                          <button
+                            onClick={() => setCustomPresetDate('LAST3DAYS')}
+                            className="flex-1 py-1 rounded text-[10px] font-bold border bg-amber-950/80 text-amber-300 border-amber-700/80 hover:bg-amber-900"
+                          >
+                            [3 DAYS]
+                          </button>
+                          <button
+                            onClick={() => setCustomPresetDate('LAST7DAYS')}
+                            className="flex-1 py-1 rounded text-[10px] font-bold border bg-purple-950/80 text-purple-300 border-purple-700/80 hover:bg-purple-900"
+                          >
+                            [7 DAYS]
+                          </button>
+                        </div>
+
+                        {/* Weekday Labels */}
+                        <div className="grid grid-cols-7 text-center text-[10px] font-bold text-slate-400 mb-1">
+                          <span>SU</span><span>MO</span><span>TU</span><span>WE</span><span>TH</span><span>FR</span><span>SA</span>
+                        </div>
+
+                        {/* Day Grid */}
+                        <div className="grid grid-cols-7 gap-1 text-center text-xs">
+                          {Array.from({ length: new Date(customCalendarYear, customCalendarMonth, 1).getDay() }).map((_, i) => (
+                            <div key={`c-empty-${i}`} />
+                          ))}
+                          {Array.from({ length: new Date(customCalendarYear, customCalendarMonth + 1, 0).getDate() }).map((_, i) => {
+                            const dayNum = i + 1;
+                            const formattedM = String(customCalendarMonth + 1).padStart(2, '0');
+                            const formattedD = String(dayNum).padStart(2, '0');
+                            const thisIso = `${customCalendarYear}-${formattedM}-${formattedD}`;
+
+                            const isStart = customStartDate === thisIso;
+                            const isEnd = customEndDate === thisIso;
+                            const minIso = customEndDate ? (customStartDate < customEndDate ? customStartDate : customEndDate) : customStartDate;
+                            const maxIso = customEndDate ? (customStartDate > customEndDate ? customStartDate : customEndDate) : customStartDate;
+                            const inRange = customEndDate && thisIso >= minIso && thisIso <= maxIso;
+
+                            return (
+                              <button
+                                key={`c-day-${dayNum}`}
+                                onClick={() => handleCustomDateCellClick(thisIso)}
+                                className={`py-1 rounded font-bold transition-all text-xs ${
+                                  isStart || isEnd
+                                    ? 'bg-cyan-500 text-black border border-cyan-400 scale-105'
+                                    : inRange
+                                    ? 'bg-cyan-900/60 text-cyan-300 border border-cyan-700/60'
+                                    : isLight
+                                    ? 'hover:bg-slate-100 text-slate-800'
+                                    : 'hover:bg-cyan-950/60 text-slate-300'
+                                }`}
+                              >
+                                {dayNum}
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {/* Run ./custom Sync Command Button */}
+                        <div className="pt-2 mt-2.5 border-t border-slate-700/80">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsCustomCalendarOpen(false);
+                              dispatchCloudCommand('SYNC_CUSTOM', customStartDate, customEndDate || customStartDate);
+                            }}
+                            disabled={isSyncing || activeCloudCmd !== null}
+                            className="w-full py-1.5 rounded font-bold text-xs border transition-all flex items-center justify-center gap-1.5 bg-cyan-500 text-black border-cyan-400 hover:bg-cyan-400 active:scale-95 shadow-none disabled:opacity-40"
+                          >
+                            <SlidersHorizontal className="w-3.5 h-3.5" />
+                            <span>🚀 RUN ./CUSTOM SYNC</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
                   <button
                     onClick={handleAutoPollToggle}
@@ -2589,6 +2800,8 @@ export default function TerminalDashboard() {
           </div>
         </div>
       )}
+
+
     </div>
   );
 }

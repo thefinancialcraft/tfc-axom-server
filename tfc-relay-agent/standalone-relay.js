@@ -496,7 +496,7 @@ async function checkAndExecuteCloudCommands() {
       endTimeStr = `${endYYYY}-${endMM}-${endDD}T23:59:59+05:30`;
     }
 
-    const maxPages = cmdType === 'SYNC_MONTHLY' ? 50 : cmdType === 'SYNC_WEEKLY' ? 20 : 8;
+    const maxPages = cmdType === 'SYNC_MONTHLY' ? 50 : cmdType === 'SYNC_WEEKLY' ? 20 : cmdType === 'SYNC_CUSTOM' ? 60 : 8;
     let position = 0;
     const maxStep = 30;
     let totalInserted = 0;
