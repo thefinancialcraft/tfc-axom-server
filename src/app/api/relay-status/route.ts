@@ -42,6 +42,7 @@ export async function GET() {
     return NextResponse.json({
       success: true,
       hostPcOnline: isOnline,
+      machineConnected: isOnline && !!hostNode?.machine_connected,
       hostNode: hostNode || {
         node_id: 'HOST_PC_MASTER',
         status: 'OFFLINE',

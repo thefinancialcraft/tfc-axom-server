@@ -630,12 +630,12 @@ export async function fetchHikvisionEvents(deep: boolean = false): Promise<{ dat
   const startYYYY = pastDate.getFullYear();
   const startMM = String(pastDate.getMonth() + 1).padStart(2, '0');
   const startDD = String(pastDate.getDate()).padStart(2, '0');
-  const startTime = `${startYYYY}-${startMM}-${startDD}T00:00:00+05:30`;
+  const startTime = `${startYYYY}-${startMM}-${startDD}T00:00:00`;
 
   const endYYYY = now.getFullYear();
   const endMM = String(now.getMonth() + 1).padStart(2, '0');
   const endDD = String(now.getDate()).padStart(2, '0');
-  const endTime = `${endYYYY}-${endMM}-${endDD}T23:59:59+05:30`;
+  const endTime = `${endYYYY}-${endMM}-${endDD}T23:59:59`;
 
   // Realtime fast mode: 1 page (30 results); Deep mode: 12 pages (360+ results) with cached auth & pacing
   let allInfoList: any[] = [];

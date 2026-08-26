@@ -81,7 +81,7 @@ export async function POST(request: Request) {
       const mm = String(d.getMonth() + 1).padStart(2, '0');
       const dd = String(d.getDate()).padStart(2, '0');
       const timePart = isEnd ? '23:59:59' : '00:00:00';
-      return `${yyyy}-${mm}-${dd}T${timePart}+05:30`;
+      return `${yyyy}-${mm}-${dd}T${timePart}`;
     };
 
     let startHikDate = startDate;
@@ -128,10 +128,10 @@ export async function POST(request: Request) {
       endHikDate = formatHikIso(eDate, true);
     } else {
       if (startDate && !startDate.includes('T')) {
-        startHikDate = `${startDate}T00:00:00+05:30`;
+        startHikDate = `${startDate}T00:00:00`;
       }
       if (endDate && !endDate.includes('T')) {
-        endHikDate = `${endDate}T23:59:59+05:30`;
+        endHikDate = `${endDate}T23:59:59`;
       }
     }
 

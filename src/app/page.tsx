@@ -546,7 +546,18 @@ export default function TerminalDashboard() {
     }
   }, [addLog, deviceIp, startDate, endDate, fetchWithClosedLog]);
 
-  const [activeCloudCmd, setActiveCloudCmd] = useState<{ id: string; type: string; status: string; progress: string } | null>(null);
+  const [activeCloudCmd, setActiveCloudCmd] = useState<{
+    id: string;
+    type: string;
+    status: string;
+    progress: string;
+    totalEvents?: number;
+    totalChunks?: number;
+    processedChunks?: number;
+    insertedRecords?: number;
+    percent?: number;
+    logLine?: string;
+  } | null>(null);
 
   const dispatchCloudCommand = async (
     commandType: 'SYNC_DAILY' | 'SYNC_WEEKLY' | 'SYNC_MONTHLY' | 'SYNC_CUSTOM',
@@ -593,6 +604,7 @@ export default function TerminalDashboard() {
 
           // Poll for command status transitions
           let checkAttempts = 0;
+          let lastProcessedChunk = 0;
           const pollInterval = setInterval(async () => {
             checkAttempts++;
             try {
@@ -618,7 +630,21 @@ export default function TerminalDashboard() {
                       type: commandType,
                       status: currentStatus,
                       progress: displayProgress,
+                      totalEvents: currentCmd.total_events || 0,
+                      totalChunks: currentCmd.total_chunks || 0,
+                      processedChunks: currentCmd.processed_chunks || 0,
+                      insertedRecords: currentCmd.inserted_records || 0,
+                      percent: currentCmd.percent || 0,
+                      logLine: currentCmd.log_line || '',
                     });
+
+                    if (currentCmd.processed_chunks !== undefined && currentCmd.processed_chunks !== lastProcessedChunk) {
+                      lastProcessedChunk = currentCmd.processed_chunks;
+                      checkAttempts = 0; 
+                      if (currentCmd.log_line) {
+                        addLog(currentCmd.log_line);
+                      }
+                    }
 
                     if (currentStatus === 'COMPLETED' || currentStatus === 'FAILED') {
                       clearInterval(pollInterval);
@@ -629,7 +655,7 @@ export default function TerminalDashboard() {
                       } else {
                         addLog(`ERROR: [Request Terminated] ${currentCmd.progress} - See Terminal Logs!`);
                       }
-                      setTimeout(() => setActiveCloudCmd(null), 3000);
+                      setTimeout(() => setActiveCloudCmd(null), 4000);
                     }
                   } else {
                     // Command completed/cleaned up
@@ -647,10 +673,10 @@ export default function TerminalDashboard() {
               }
             } catch {}
 
-            if (checkAttempts >= 35) {
+            if (checkAttempts >= 120) {
               clearInterval(pollInterval);
               setIsSyncing(false);
-              addLog(`ERROR: [Request Terminated] Command timed out after 50 seconds - Check Terminal Logs!`);
+              addLog(`ERROR: [Request Terminated] Command timed out after 6 minutes of inactivity - Check Terminal Logs!`);
               setActiveCloudCmd({
                 id: cmdObj.id,
                 type: commandType,
@@ -659,7 +685,7 @@ export default function TerminalDashboard() {
               });
               setTimeout(() => setActiveCloudCmd(null), 3500);
             }
-          }, 1500);
+          }, 2000);
         } else {
           addLog(`ERROR: [Request Terminated] ${data.error || 'Check Supabase Connection'}`);
           setIsSyncing(false);

@@ -2,16 +2,23 @@
 TFC AXOM - STANDALONE HIKVISION LOCAL RELAY AGENT FOR HOST PC
 ==============================================================================
 
-Is folder ko office ke Host PC (jo 192.168.1.63 Wi-Fi network par hai) par copy karein.
+LAUNCH MODES:
+-------------
+1. Background Minimized on Taskbar (RECOMMENDED):
+   - Double click 'start-relay-verbose.vbs' (or 'start-relay-minimized.vbs')
+   - Relay background me run karega (screen ke beech me popup/focus disturbance nahi hoga).
+   - Live visual logs dekhne ke liye Windows Taskbar par CMD icon par click karein.
 
-SETUP INSTRUCTIONS:
--------------------
-1. Host PC par is 'tfc-relay-agent' folder ko kahin bhi rakhein (e.g. C:\tfc-relay-agent).
-2. Single-click start ke liye 'start-relay-visible.bat' par double click karein.
-3. Completely silent (background mode) ke liye 'start-relay-silent.vbs' par double click karein.
+2. Silent Background Mode (No Taskbar Window):
+   - Double click 'start-relay-silent.vbs'
+   - Completely silent in background.
 
-AUTOMATIC WINDOWS BOOT SETUP (Zero Manual Clicks):
---------------------------------------------------
-1. Host PC par Keyboard par Win + R press karein aur type karein: shell:startup
-2. 'start-relay-silent.vbs' ka shortcut is Startup folder mein paste kar dein.
-3. Done! System restart hone par relay agent automatic background mein start ho jayega.
+3. Foreground Active Window:
+   - Double click 'start-relay-visible.bat'
+   - Opens active terminal window.
+
+AUTOMATIC WINDOWS BOOT SETUP:
+-----------------------------
+1. Host PC keyboard par Win + R press karein aur type karein: shell:startup
+2. Background Minimized Taskbar mode ke liye 'start-relay-verbose.vbs' (ya 'start-relay-minimized.vbs') ka shortcut paste kar dein.
+3. Done! System start hote hi relay background me taskbar par minimized chalega.

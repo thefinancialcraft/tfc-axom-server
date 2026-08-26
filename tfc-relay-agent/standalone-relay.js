@@ -85,7 +85,7 @@ function parseHikTime(timeStr) {
   return { dateStr, timeStr24, yearShort: String(d.getFullYear()).slice(-2), month: String(d.getMonth() + 1).padStart(2, '0'), day: String(d.getDate()).padStart(2, '0'), YYYY: String(d.getFullYear()), hh: String(d.getHours()).padStart(2, '0'), mm: String(d.getMinutes()).padStart(2, '0'), ss: String(d.getSeconds()).padStart(2, '0') };
 }
 
-function httpPost(urlStr, headers, body) {
+function httpPost(urlStr, headers, body, timeoutMs = 30000) {
   return new Promise((resolve, reject) => {
     const parsedUrl = new URL(urlStr);
     const mod = parsedUrl.protocol === 'https:' ? https : http;
@@ -118,7 +118,7 @@ function httpPost(urlStr, headers, body) {
     });
 
     req.on('error', (err) => reject(err));
-    req.setTimeout(3000, () => {
+    req.setTimeout(timeoutMs, () => {
       req.destroy(new Error('Connection Timeout'));
     });
 
@@ -127,7 +127,7 @@ function httpPost(urlStr, headers, body) {
   });
 }
 
-function httpGet(urlStr, headers) {
+function httpGet(urlStr, headers, timeoutMs = 15000) {
   return new Promise((resolve, reject) => {
     const parsedUrl = new URL(urlStr);
     const mod = parsedUrl.protocol === 'https:' ? https : http;
@@ -155,7 +155,7 @@ function httpGet(urlStr, headers) {
     });
 
     req.on('error', (err) => reject(err));
-    req.setTimeout(3000, () => {
+    req.setTimeout(timeoutMs, () => {
       req.destroy(new Error('Connection Timeout'));
     });
 
@@ -206,12 +206,12 @@ async function fetchHikvisionEvents() {
   const startYYYY = threeDaysAgo.getFullYear();
   const startMM = String(threeDaysAgo.getMonth() + 1).padStart(2, '0');
   const startDD = String(threeDaysAgo.getDate()).padStart(2, '0');
-  const startTime = `${startYYYY}-${startMM}-${startDD}T00:00:00+05:30`;
+  const startTime = `${startYYYY}-${startMM}-${startDD}T00:00:00`;
 
   const endYYYY = now.getFullYear();
   const endMM = String(now.getMonth() + 1).padStart(2, '0');
   const endDD = String(now.getDate()).padStart(2, '0');
-  const endTime = `${endYYYY}-${endMM}-${endDD}T23:59:59+05:30`;
+  const endTime = `${endYYYY}-${endMM}-${endDD}T23:59:59`;
 
   const postData = JSON.stringify({
     AcsEventCond: {
@@ -238,9 +238,11 @@ async function fetchHikvisionEvents() {
     }, postData);
 
     if (secondRes.ok) {
+      isMachineConnected = true;
       return await secondRes.json();
     }
   } else if (firstRes && firstRes.ok) {
+    isMachineConnected = true;
     return await firstRes.json();
   }
 
@@ -249,6 +251,7 @@ async function fetchHikvisionEvents() {
 
 const RELAY_SECRET_KEY = process.env.RELAY_SECRET_KEY || 'tfc_axom_master_relay_sec_2026';
 let isMachineConnected = false;
+let hikDeviceInfo = null;
 let lastSyncTimeIso = new Date().toISOString();
 const rateLimitMap = new Map();
 
@@ -325,15 +328,21 @@ function startLocalHttpServer(port = 5000) {
 
   server.listen(port, '0.0.0.0', () => {
     console.log(`📡 Secure Local Relay HTTP Server active on http://localhost:${port}/status (CORS & SHA256 HMAC Signed)`);
-  }).on('error', (err) => {
+  }).on('error', async (err) => {
     if (err.code === 'EADDRINUSE') {
-      console.warn(`⚠️ Port ${port} in use, trying port ${port + 1}...`);
-      startLocalHttpServer(port + 1);
+      console.log(`\n====================================================`);
+      console.log(`⚠️ TFC AXOM RELAY IS ALREADY RUNNING ON PORT ${port}!`);
+      console.log(`====================================================`);
+      console.log(`🔒 Single-Instance Guard Active: Stopping duplicate process.`);
+      console.log(`💡 Only 1 Relay Agent process can run at a time to prevent duplicate DB writes.`);
+      console.log(`====================================================\n`);
+      await new Promise((r) => setTimeout(r, 2000));
+      process.exit(0);
     }
   });
 }
 
-async function updateCommandStatus(cmdId, status, progressMsg) {
+async function updateCommandStatus(cmdId, status, progressMsg, extraData = {}) {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !cmdId) return;
   const endpoint = `${SUPABASE_URL}/rest/v1/relay_commands?id=eq.${cmdId}`;
   const headers = {
@@ -345,6 +354,7 @@ async function updateCommandStatus(cmdId, status, progressMsg) {
   const body = JSON.stringify({
     status: status,
     progress: progressMsg,
+    ...(extraData || {}),
     updated_at: new Date().toISOString()
   });
 
@@ -400,7 +410,7 @@ function scheduleCommandDeletion(cmdId, delayMs = 120000) {
   }, delayMs);
 }
 
-async function fetchHikvisionEventsPaged(searchPosition = 0, maxStep = 30, startTimeStr, endTimeStr) {
+async function fetchHikvisionEventsPaged(searchPosition = 0, maxStep = 30, startTimeStr, endTimeStr, retries = 2) {
   const uri = '/ISAPI/AccessControl/AcsEvent?format=json';
   const url = `http://${HIK_IP}${uri}`;
   const postData = JSON.stringify({
@@ -416,21 +426,156 @@ async function fetchHikvisionEventsPaged(searchPosition = 0, maxStep = 30, start
     },
   });
 
-  const firstRes = await httpPost(url, { 'Content-Type': 'application/json' }, postData).catch(() => null);
-  if (firstRes && firstRes.status === 401) {
-    const wwwAuth = String(firstRes.headers['www-authenticate'] || '');
-    const digestHeader = buildDigestHeader('POST', uri, wwwAuth, HIK_USER, HIK_PASS);
-    const secondRes = await httpPost(url, {
-      'Content-Type': 'application/json',
-      'Authorization': digestHeader,
-    }, postData).catch(() => null);
-    if (secondRes && secondRes.ok) {
-      return await secondRes.json();
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const firstRes = await httpPost(url, { 'Content-Type': 'application/json' }, postData, 30000).catch(() => null);
+      if (firstRes && firstRes.status === 401) {
+        const wwwAuth = String(firstRes.headers['www-authenticate'] || '');
+        const digestHeader = buildDigestHeader('POST', uri, wwwAuth, HIK_USER, HIK_PASS);
+        const secondRes = await httpPost(url, {
+          'Content-Type': 'application/json',
+          'Authorization': digestHeader,
+        }, postData, 30000).catch(() => null);
+        if (secondRes && secondRes.ok) {
+          isMachineConnected = true;
+          return await secondRes.json();
+        }
+      } else if (firstRes && firstRes.ok) {
+        isMachineConnected = true;
+        return await firstRes.json();
+      }
+    } catch {}
+    if (attempt < retries - 1) {
+      await new Promise((r) => setTimeout(r, 400));
     }
-  } else if (firstRes && firstRes.ok) {
-    return await firstRes.json();
   }
   return null;
+}
+
+// ==============================================================================
+// UNBOUNDED CHUNKED EVENT SCANNER
+// Scans any date range in chunks of maxStep (30 events) until NO MATCH or end
+// ==============================================================================
+async function scanEventRangeInChunks(startTimeStr, endTimeStr, options = {}) {
+  const { onProgress, maxStep = 30, delayMs = 25, isCancelledFn } = options;
+  let position = 0;
+  let totalInserted = 0;
+  let page = 0;
+  let totalMatches = 0;
+  let totalChunks = 0;
+
+  while (true) {
+    if (isCancelledFn && isCancelledFn()) break;
+
+    const pagedData = await fetchHikvisionEventsPaged(position, maxStep, startTimeStr, endTimeStr);
+    const chunkEvents = pagedData?.AcsEvent?.InfoList || [];
+    const statusStr = String(pagedData?.AcsEvent?.responseStatusStrg || '').toUpperCase();
+
+    if (page === 0) {
+      totalMatches = parseInt(pagedData?.AcsEvent?.numOfMatches || pagedData?.AcsEvent?.totalMatches || '0', 10);
+      if (totalMatches > 0) {
+        totalChunks = Math.ceil(totalMatches / maxStep);
+      }
+    }
+
+    if (!Array.isArray(chunkEvents) || chunkEvents.length === 0 || statusStr === 'NO MATCH') {
+      break;
+    }
+
+    const chunkNewRecords = [];
+    for (const event of chunkEvents) {
+      if (event.major !== undefined && Number(event.major) !== 5 && Number(event.major) !== 0) continue;
+
+      const serial = parseInt(event.serialNo || '0', 10);
+      const employeeNo = (event.employeeNoString || event.employeeNo || event.cardNo || '').toString().trim();
+      const userName = (event.name || event.userType || (employeeNo ? `Employee ${employeeNo}` : '')).toString().trim();
+      if (!employeeNo || employeeNo === '--' || employeeNo.toLowerCase() === 'invalid' || !userName) continue;
+
+      const numericCode = employeeNo.replace(/[^0-9]/g, '');
+      if (!numericCode) continue;
+
+      const parsedTime = parseHikTime(event.time);
+      const dateStamp = `${parsedTime.YYYY}${parsedTime.month}${parsedTime.day}${parsedTime.hh}${parsedTime.mm}${parsedTime.ss}`;
+      const entry_id = `T${dateStamp}${numericCode}${serial}`;
+
+      if (!processedEntryIds.has(entry_id)) {
+        processedEntryIds.add(entry_id);
+        const atn_token = `${parsedTime.yearShort}${parsedTime.month}${parsedTime.day}${numericCode}`;
+        const employee_id = employeeNo.includes('-') ? employeeNo : employeeNo.replace(/([A-Za-z]+)([0-9]+)/, '$1-$2');
+
+        chunkNewRecords.push({
+          entry_id,
+          atn_token,
+          employee_id,
+          user_name: userName,
+          attendance_date: parsedTime.dateStr,
+          attendance_time: parsedTime.timeStr24,
+        });
+      }
+    }
+
+    position += chunkEvents.length;
+
+    if (chunkNewRecords.length > 0) {
+      await upsertToSupabase(chunkNewRecords);
+      totalInserted += chunkNewRecords.length;
+    }
+
+    page++;
+
+    const currentTotalChunks = totalChunks > 0 ? totalChunks : page;
+    const percent = totalChunks > 0 ? Math.min(100, Math.round((page / totalChunks) * 100)) : 0;
+
+    if (onProgress) {
+      await onProgress({
+        page,
+        totalChunks: currentTotalChunks,
+        totalMatches,
+        position,
+        chunkCount: chunkEvents.length,
+        insertedInChunk: chunkNewRecords.length,
+        totalInserted,
+        percent,
+      });
+    }
+
+    if (delayMs > 0) {
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+
+  return { totalInserted, pageCount: page, totalRead: position, totalMatches, totalChunks };
+}
+
+function getTodayIsoRange() {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const startTimeStr = `${yyyy}-${mm}-${dd}T00:00:00`;
+  const endTimeStr = `${yyyy}-${mm}-${dd}T23:59:59`;
+  return { startTimeStr, endTimeStr };
+}
+
+async function runTodayDeepScan(tag = 'DEEP SCAN') {
+  const { startTimeStr, endTimeStr } = getTodayIsoRange();
+  console.log(`\n🔍 [${tag}] Starting deep search scan for Today (${startTimeStr.slice(0, 10)})...`);
+
+  try {
+    const res = await scanEventRangeInChunks(startTimeStr, endTimeStr, {
+      maxStep: 30,
+      delayMs: 20,
+      onProgress: async (p) => {
+        if (p.page === 1 || p.page % 10 === 0 || p.insertedInChunk > 0) {
+          console.log(`[${tag}] Chunk #${p.page} (Read ${p.position} events, ${p.totalInserted} new records inserted so far)`);
+        }
+      },
+    });
+    isMachineConnected = true;
+    console.log(`✅ [${tag}] Complete! Read ${res.totalRead} events in ${res.pageCount} chunks. Inserted ${res.totalInserted} new records.\n`);
+  } catch (err) {
+    console.error(`⚠️ [${tag}] Error during deep scan:`, err.message);
+  }
 }
 
 async function checkAndExecuteCloudCommands() {
@@ -456,21 +601,26 @@ async function checkAndExecuteCloudCommands() {
 
     console.log(`\n⚡ CLOUD COMMAND RECEIVED: [${cmdType}] (ID: ${cmd.id})`);
     
-    // Stage 3: Mark RECEIVED (Performing Request) in Supabase DB
+    // Stage 1: Mark RECEIVED
     await updateCommandStatus(cmd.id, 'RECEIVED', `[${logTimeStr()}] Performing Request 🔄`);
-    await new Promise((r) => setTimeout(r, 250));
+    await new Promise((r) => setTimeout(r, 200));
 
-    // Hard 2-Minute Command Timeout Watchdog
+    // Dynamic Watchdog: Extends whenever a chunk progresses
+    let lastChunkActivityTs = Date.now();
     let isCommandTimedOut = false;
-    const cmdTimeoutTimer = setTimeout(async () => {
-      isCommandTimedOut = true;
-      console.error(`⏰ TIMEOUT: Command ${cmd.id} exceeded 2-minute execution limit. Aborting...`);
-      await updateCommandStatus(cmd.id, 'FAILED', `[${logTimeStr()}] Request Terminated (See Logs) ❌ [2-Min Timeout Exceeded]`);
-      scheduleCommandDeletion(cmd.id, 5000);
-    }, 120000);
+    const cmdTimeoutTimer = setInterval(async () => {
+      // If no chunk activity for 3 minutes, timeout
+      if (Date.now() - lastChunkActivityTs > 180000) {
+        isCommandTimedOut = true;
+        clearInterval(cmdTimeoutTimer);
+        console.error(`⏰ TIMEOUT: Command ${cmd.id} exceeded 3-minute inactivity limit. Aborting...`);
+        await updateCommandStatus(cmd.id, 'FAILED', `[${logTimeStr()}] Request Terminated ❌ [Inactivity Timeout]`);
+        scheduleCommandDeletion(cmd.id, 5000);
+      }
+    }, 15000);
 
-    // Stage 3: Mark PROCESSING (Performing Request Chunking) in Supabase DB
-    await updateCommandStatus(cmd.id, 'PROCESSING', `[${logTimeStr()}] Performing Request (Initializing Engine)...`);
+    // Stage 2: Mark PROCESSING
+    await updateCommandStatus(cmd.id, 'PROCESSING', `[${logTimeStr()}] Performing Request (Initializing Chunk Engine)...`);
 
     const now = new Date();
     let daysBack = 1;
@@ -481,88 +631,62 @@ async function checkAndExecuteCloudCommands() {
     let startTimeStr = cmd.start_date;
     let endTimeStr = cmd.end_date;
 
+    if (startTimeStr && startTimeStr.includes('+')) startTimeStr = startTimeStr.split('+')[0];
+    if (endTimeStr && endTimeStr.includes('+')) endTimeStr = endTimeStr.split('+')[0];
+
     if (!startTimeStr || !startTimeStr.includes('T')) {
       const pastDate = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000);
       const startYYYY = pastDate.getFullYear();
       const startMM = String(pastDate.getMonth() + 1).padStart(2, '0');
       const startDD = String(pastDate.getDate()).padStart(2, '0');
-      startTimeStr = `${startYYYY}-${startMM}-${startDD}T00:00:00+05:30`;
+      startTimeStr = `${startYYYY}-${startMM}-${startDD}T00:00:00`;
     }
 
     if (!endTimeStr || !endTimeStr.includes('T')) {
       const endYYYY = now.getFullYear();
       const endMM = String(now.getMonth() + 1).padStart(2, '0');
       const endDD = String(now.getDate()).padStart(2, '0');
-      endTimeStr = `${endYYYY}-${endMM}-${endDD}T23:59:59+05:30`;
+      endTimeStr = `${endYYYY}-${endMM}-${endDD}T23:59:59`;
     }
 
-    const maxPages = cmdType === 'SYNC_MONTHLY' ? 50 : cmdType === 'SYNC_WEEKLY' ? 20 : cmdType === 'SYNC_CUSTOM' ? 60 : 8;
-    let position = 0;
-    const maxStep = 30;
-    let totalInserted = 0;
+    console.log(`[CHUNK ENGINE] Executing ${cmdType} for range: ${startTimeStr} ➔ ${endTimeStr}`);
 
-    for (let page = 0; page < maxPages; page++) {
-      if (isCommandTimedOut) break;
+    const result = await scanEventRangeInChunks(startTimeStr, endTimeStr, {
+      maxStep: 30,
+      delayMs: 35,
+      isCancelledFn: () => isCommandTimedOut,
+      onProgress: async (p) => {
+        lastChunkActivityTs = Date.now();
+        const chunkDisplay = p.totalChunks > 0 ? `Chunk #${p.page}/${p.totalChunks}` : `Chunk #${p.page}`;
+        const totalEventsDisplay = p.totalMatches > 0 ? ` of ${p.totalMatches}` : '';
+        const progressMsg = `[${logTimeStr()}] ${chunkDisplay} (${p.percent}%): ${p.position}${totalEventsDisplay} scanned, ${p.totalInserted} records synced`;
+        const logLine = `[CHUNK ENGINE] [${logTimeStr()}] ${chunkDisplay} (${p.percent}%): ${p.position}${totalEventsDisplay} scanned, ${p.totalInserted} inserted`;
+        console.log(logLine);
 
-      const pagedData = await fetchHikvisionEventsPaged(position, maxStep, startTimeStr, endTimeStr);
-      const chunkEvents = pagedData?.AcsEvent?.InfoList || [];
-      const statusStr = String(pagedData?.AcsEvent?.responseStatusStrg || '').toUpperCase();
+        await updateCommandStatus(cmd.id, 'PROCESSING', progressMsg, {
+          total_events: p.totalMatches,
+          total_chunks: p.totalChunks,
+          processed_chunks: p.page,
+          inserted_records: p.totalInserted,
+          percent: p.percent,
+          log_line: logLine
+        });
+      },
+    });
 
-      if (chunkEvents.length === 0 || statusStr === 'NO MATCH') break;
-
-      const chunkNewRecords = [];
-      for (const event of chunkEvents) {
-        if (event.major !== undefined && Number(event.major) !== 5 && Number(event.major) !== 0) continue;
-
-        const serial = parseInt(event.serialNo || '0', 10);
-        const employeeNo = (event.employeeNoString || event.employeeNo || event.cardNo || '').toString().trim();
-        const userName = (event.name || event.userType || (employeeNo ? `Employee ${employeeNo}` : '')).toString().trim();
-        if (!employeeNo || employeeNo === '--' || employeeNo.toLowerCase() === 'invalid' || !userName) continue;
-
-        const numericCode = employeeNo.replace(/[^0-9]/g, '');
-        if (!numericCode) continue;
-
-        const parsedTime = parseHikTime(event.time);
-        const dateStamp = `${parsedTime.YYYY}${parsedTime.month}${parsedTime.day}${parsedTime.hh}${parsedTime.mm}${parsedTime.ss}`;
-        const entry_id = `T${dateStamp}${numericCode}${serial}`;
-
-        if (!processedEntryIds.has(entry_id)) {
-          processedEntryIds.add(entry_id);
-          const atn_token = `${parsedTime.yearShort}${parsedTime.month}${parsedTime.day}${numericCode}`;
-          const employee_id = employeeNo.includes('-') ? employeeNo : employeeNo.replace(/([A-Za-z]+)([0-9]+)/, '$1-$2');
-
-          chunkNewRecords.push({
-            entry_id,
-            atn_token,
-            employee_id,
-            user_name: userName,
-            attendance_date: parsedTime.dateStr,
-            attendance_time: parsedTime.timeStr24,
-          });
-        }
-      }
-
-      position += chunkEvents.length;
-
-      if (chunkNewRecords.length > 0) {
-        await upsertToSupabase(chunkNewRecords);
-        totalInserted += chunkNewRecords.length;
-      }
-
-      const progressMsg = `[${logTimeStr()}] Performing Request (Chunk #${page + 1}/${maxPages}: ${totalInserted} inserted)`;
-      console.log(`[CHUNK ENGINE] ${progressMsg}`);
-      await updateCommandStatus(cmd.id, 'PROCESSING', progressMsg);
-
-      if (page < maxPages - 1) {
-        await new Promise((r) => setTimeout(r, 35));
-      }
-    }
-
-    clearTimeout(cmdTimeoutTimer);
+    clearInterval(cmdTimeoutTimer);
 
     if (!isCommandTimedOut) {
-      await updateCommandStatus(cmd.id, 'COMPLETED', `[${logTimeStr()}] Request Done ✅ (${totalInserted} recordsSynced)`);
-      console.log(`✅ CLOUD COMMAND [${cmdType}] COMPLETED! Total ${totalInserted} new records inserted.\n`);
+      const doneLog = `[${logTimeStr()}] Request Done ✅ (${result.totalInserted} records synced across ${result.pageCount} chunks)`;
+      await updateCommandStatus(cmd.id, 'COMPLETED', doneLog, {
+        total_events: result.totalMatches,
+        total_chunks: result.totalChunks,
+        processed_chunks: result.pageCount,
+        inserted_records: result.totalInserted,
+        percent: 100,
+        log_line: doneLog
+      });
+      console.log(`✅ CLOUD COMMAND [${cmdType}] COMPLETED! Total ${result.totalInserted} new records inserted across ${result.pageCount} chunks.\n`);
       scheduleCommandDeletion(cmd.id, 120000);
     }
   } catch (cmdErr) {
@@ -576,7 +700,6 @@ async function checkAndExecuteCloudCommands() {
 }
 
 let lastHeartbeatTs = 0;
-
 let prevMachineConnectedState = null;
 
 async function sendHeartbeatToSupabase(force = false) {
@@ -600,7 +723,7 @@ async function sendHeartbeatToSupabase(force = false) {
       status: isMachineConnected ? 'ONLINE' : 'MACHINE_OFFLINE',
       machine_ip: HIK_IP,
       machine_connected: isMachineConnected,
-      serial_number: hikDeviceInfo?.serialNumber || 'DS-K1T320EFWX20240701V030502ENFS1267085',
+      serial_number: (hikDeviceInfo && hikDeviceInfo.serialNumber) ? hikDeviceInfo.serialNumber : 'DS-K1T320EFWX20240701V030502ENFS1267085',
       auth_token: 'TFC-MASTER-RELAY-V2',
       processed_count: processedEntryIds.size,
       last_heartbeat: new Date().toISOString(),
@@ -616,23 +739,52 @@ async function initRelay() {
   console.log('====================================================');
   console.log(`🌐 Hikvision Machine: http://${HIK_IP}`);
   console.log(`☁️ Supabase Cloud: ${SUPABASE_URL}`);
-  console.log(`⏱️ Polling Frequency: Every ${POLL_INTERVAL_MS}ms\n`);
+  console.log(`⏱️ Polling Frequency: Every ${POLL_INTERVAL_MS}ms`);
+  console.log(`🔄 Periodic Deep Scan: Every 5 Minutes\n`);
 
   startLocalHttpServer(5000);
   await fetchSupabaseProcessedIds();
 
+  // Instant light probe (5 items) & force heartbeat send so UI shows ONLINE & Machine Connected immediately
+  try {
+    const { startTimeStr, endTimeStr } = getTodayIsoRange();
+    const probeRes = await fetchHikvisionEventsPaged(0, 5, startTimeStr, endTimeStr);
+    if (probeRes) {
+      isMachineConnected = true;
+      console.log('✅ Hikvision Machine Connection Verified (Light Probe)!');
+    }
+  } catch (err) {
+    console.warn('⚠️ Initial Machine Probe Warning:', err.message);
+  }
+  await sendHeartbeatToSupabase(true);
+
   console.log('🟢 STANDALONE RELAY AGENT ACTIVE & RUNNING!\n');
 
+  // 1. FIRST START DEEP SEARCH FOR TODAY'S EVENTS (Asynchronous / Non-blocking)
+  runTodayDeepScan('FIRST START SCAN').catch(() => {});
+
+  // 2. 5-MINUTE PERIODIC DEEP SCAN TIMER
+  setInterval(async () => {
+    if (isSyncing) return;
+    isSyncing = true;
+    try {
+      await runTodayDeepScan('5-MIN PERIODIC DEEP SCAN');
+    } finally {
+      isSyncing = false;
+    }
+  }, 5 * 60 * 1000);
+
+  // 3. FAST 2.5-SECOND REALTIME POLLING LOOP
   setInterval(async () => {
     if (isSyncing) return;
     isSyncing = true;
 
     try {
-      // 1. Fetch events from Hikvision Machine first & update connection state
+      // Fetch latest events from Hikvision Machine & update connection state
       const data = await fetchHikvisionEvents();
       isMachineConnected = true;
 
-      // 2. Send updated heartbeat to Supabase Cloud DB
+      // Send updated heartbeat & process pending cloud commands
       await sendHeartbeatToSupabase();
       await checkAndExecuteCloudCommands();
       const newRecords = [];
@@ -709,3 +861,5 @@ async function initRelay() {
 }
 
 initRelay();
+
+
